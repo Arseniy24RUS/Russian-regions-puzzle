@@ -136,8 +136,8 @@
   fitCanvas();
   window.addEventListener('resize', ()=>{
     fitCanvas(); fitProjection(); rebuildGeometry(); fitView();
-    // при ресайзе возвращаем текущую незакреплённую деталь в зону спавна
-    if(!pieces[current].locked){ applySpawn(current); buildPick(); }
+    // переносим текущую незакреплённую деталь обратно в лоток
+    if(!pieces[current].locked){ setPieceInTray(current, true); buildPick(); }
     drawAll(true);
   });
 
@@ -170,7 +170,7 @@
   }
   fitProjection();
 
-  // ===== Paths & anchors (центр bbox в экранных px + _pad) =====
+  // ===== Paths & anchors =====
   function buildPath2D(f){
     const p = new Path2D();
     const g=f.geometry||{}, arr=(g.type==='Polygon')?[g.coordinates||[]]:(g.coordinates||[]);
@@ -197,10 +197,10 @@
     anchors = features.map(f=>{ const b=gp.bounds(f); return [(b[0][0]+b[1][0])/2 + _pad, (b[0][1]+b[1][1])/2 + _pad]; });
   }
 
-  // ===== Авто-вписывание + нижняя стартовая полоса =====
-  const SPAWN = { height:118, margin:8, pad:8 };
+  // ===== Авто-вписывание + нижний «лоток» =====
+  const TRAY = { height:118, margin:8, pad:8 };  // «лоток» под картой
   let view = { k:1, x:0, y:0 };
-  const viewMin = 0.8, viewMax = 3.5;
+  const viewMin = 0.8, viewMax = 10.0;          // УВЕЛИЧЕН МАКС. ЗУМ ×10
 
   function worldBounds(){
     let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
@@ -224,7 +224,7 @@
     const b = worldBounds();
     const w = Math.max(1, b.maxX - b.minX), h = Math.max(1, b.maxY - b.minY);
     const pad = 8;
-    const mapBottom = H - SPAWN.height - SPAWN.margin;
+    const mapBottom = H - TRAY.height - TRAY.margin;
     const availH = (mapBottom - pad) - (pad);
     const k = Math.min((W - 2*pad)/w, (availH)/h);
     view.k = k;
@@ -237,7 +237,7 @@
   function setScene(c){ c.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y); }
   function screenToWorld(x,y){ return { x:(x - view.x)/view.k, y:(y - view.y)/view.k }; }
 
-  // ===== Вспомогательное: экранные координаты якоря детали =====
+  // ===== Вспомогательное: экранные координаты якоря =====
   function screenAnchor(i, p){
     const [ax,ay] = anchors[i];
     const wx = ax + (p?.dx || 0), wy = ay + (p?.dy || 0);
@@ -250,7 +250,7 @@
 
   // ===== Состояние игры =====
   const TOTAL = features.length;
-  const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false }));
+  const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false, inTray:true }));
   let order = d3.shuffle(d3.range(TOTAL));
   let cursor = 0;
   let current = order[cursor];
@@ -258,100 +258,104 @@
   let startAt=null, finished=false;
   let difficultyLocked=false;
 
-  // ===== Стартовая зона и синхронный спавн =====
-  function spawnRect(){ const r=cv.getBoundingClientRect(); return { x: SPAWN.pad, y: r.height - SPAWN.height - SPAWN.margin, w: r.width - 2*SPAWN.pad, h: SPAWN.height }; }
-  function spawnPoint(){ const sr=spawnRect(); return { x: sr.x + sr.w*0.5, y: sr.y + sr.h*0.5 }; }
-  function spawnOffsetsFor(i){
-    const sp = spawnPoint();
-    const w = screenToWorld(sp.x, sp.y);
-    const [ax,ay] = anchors[i];
-    return { dx: w.x - ax, dy: w.y - ay };
-  }
-  function applySpawn(i){
-    const off = spawnOffsetsFor(i);
-    const p = pieces[i]; p.dx = off.dx; p.dy = off.dy;
-  }
-  function setCurrent(i){
-    current = i;
-    applySpawn(i);            // всегда кладём в центр стартовой полосы
-    buildPick();
-    drawAll(false);
+  // ===== Лоток =====
+  function trayRect(){ const r=cv.getBoundingClientRect(); return { x: TRAY.pad, y: r.height - TRAY.height - TRAY.margin, w: r.width - 2*TRAY.pad, h: TRAY.height }; }
+  function trayCenter(){ const tr=trayRect(); return { x: tr.x + tr.w*0.5, y: tr.y + tr.h*0.5 }; }
+  function spawnOffsetsFor(i){ const c=trayCenter(); const w=screenToWorld(c.x,c.y); const [ax,ay]=anchors[i]; return { dx:w.x-ax, dy:w.y-ay }; }
+  function setPieceInTray(i, yes){
+    const p = pieces[i];
+    p.inTray = !!yes;
+    if(p.inTray){
+      const off = spawnOffsetsFor(i); p.dx = off.dx; p.dy = off.dy;
+    }
   }
 
-  // ===== Рендер (с клиппингом незакреплённой детали в стартовой полосе) =====
-  function drawMapSilhouette(){
+  function setCurrent(i){
+    current = i;
+    setPieceInTray(i, true); // всегда начинаем из лотка
+    buildPick(); drawAll(false);
+  }
+
+  // ===== Рендер =====
+  function drawMap(){
     ctx.save(); setScene(ctx);
     for(const path of paths){ ctx.fillStyle='#152b55'; ctx.fill(path); }
-    ctx.strokeStyle='#25407a'; ctx.lineWidth=Math.max(1/view.k,0.6);
+    // Усиленная обводка для мелких субъектов — лучше видимость на телефоне
+    ctx.strokeStyle='#4a6fb8'; ctx.lineWidth=Math.max(1.2/view.k, 1.2);
     for(const path of paths){ ctx.stroke(path); }
     ctx.restore();
   }
+
   function drawPieces(){
-    // закреплённые — фоном
+    // 1) закреплённые на карте
     ctx.save(); setScene(ctx);
     for(const p of pieces){
       if(!p.locked) continue;
       ctx.save(); ctx.translate(p.dx,p.dy);
-      ctx.fillStyle='#00AEEF'; ctx.globalAlpha=0.98; ctx.strokeStyle='#0a2a4f'; ctx.lineWidth=Math.max(0.8/view.k,0.5);
+      ctx.fillStyle='#00AEEF'; ctx.globalAlpha=0.98;
+      ctx.strokeStyle='#08305c'; ctx.lineWidth=Math.max(1.1/view.k, 1.0);
       ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]);
       ctx.restore();
     }
     ctx.restore();
 
-    // текущая незакреплённая — поверх; если её якорь в стартовой полосе, клиппим полосой
+    // 2) текущая незакреплённая
     const pc = pieces[current];
     if(!pc.locked){
-      const sr = spawnRect();
-      const {sx,sy} = screenAnchor(pc.i, pc);
-      const insideSpawn = (sx>=sr.x && sx<=sr.x+sr.w && sy>=sr.y && sy<=sr.y+sr.h);
+      if(pc.inTray){
+        // рисуем в экранных координатах прямо в лотке, всегда на виду и в одном месте
+        const tr = trayRect();
+        const [ax,ay] = anchors[pc.i];
+        // вычислим экранный bbox детали при мировом масштабе 1 (без учёта view) — через geoPath.bounds у нас уже «экранные» px,
+        // поэтому берём его размер и вписываем в лоток с коэффициентом
+        const b = gp.bounds(features[pc.i]); // [ [minx,miny], [maxx,maxy] ] в px (до view)
+        const bw = (b[1][0]-b[0][0]); const bh = (b[1][1]-b[0][1]);
+        const s = Math.min((tr.w*0.8)/bw, (tr.h*0.8)/bh); // масштаб превью
+        const cx = tr.x + tr.w/2; const cy = tr.y + tr.h/2;
 
-      ctx.save();
-      if(insideSpawn){
-        ctx.setTransform(dpr,0,0,dpr,0,0);
-        ctx.beginPath(); ctx.rect(sr.x, sr.y, sr.w, sr.h); ctx.clip();
-        setScene(ctx);
+        ctx.save();
+        ctx.setTransform(dpr,0,0,dpr,0,0); // экранные координаты
+        ctx.translate(cx, cy);
+        ctx.scale(s, s);
+        // центрируем относительно якоря
+        ctx.translate(-(ax), -(ay));
+
+        // сама деталь
+        ctx.fillStyle='#FF3B30'; ctx.globalAlpha=0.98;
+        ctx.strokeStyle='#680000'; ctx.lineWidth=1.4;
+        ctx.fill(paths[pc.i]); ctx.stroke(paths[pc.i]);
+        ctx.restore();
       }else{
-        setScene(ctx);
+        // на карте
+        ctx.save(); setScene(ctx);
+        ctx.translate(pc.dx,pc.dy);
+        ctx.fillStyle='#FF3B30'; ctx.globalAlpha=0.98;
+        ctx.strokeStyle='#680000'; ctx.lineWidth=Math.max(1.1/view.k,1.0);
+        ctx.fill(paths[pc.i]); ctx.stroke(paths[pc.i]);
+        ctx.restore();
       }
-
-      ctx.translate(pc.dx,pc.dy);
-      ctx.fillStyle='#FF3B30';           // ярко-красный для незакреплённой
-      ctx.globalAlpha=0.98;
-      ctx.strokeStyle='#680000'; ctx.lineWidth=Math.max(0.9/view.k,0.6);
-      ctx.fill(paths[pc.i]); ctx.stroke(paths[pc.i]);
-      ctx.restore();
     }
   }
-  function drawSpawnOverlay(){
-    const sr = spawnRect();
+
+  function drawTray(){
+    const tr = trayRect();
     ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.strokeStyle = 'rgba(200,220,255,.35)'; ctx.setLineDash([8,6]); ctx.lineWidth = 1.5;
-    ctx.strokeRect(sr.x, sr.y, sr.w, sr.h);
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#cfe0ff';
-    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-    ctx.fillText('Текущий субъект РФ:', sr.x+10, sr.y+18);
-    ctx.font = 'bold 14px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-    ctx.fillText(getName(current), sr.x+10, sr.y+38);
+    ctx.strokeStyle='rgba(200,220,255,.35)'; ctx.setLineDash([8,6]); ctx.lineWidth=1.5;
+    ctx.strokeRect(tr.x,tr.y,tr.w,tr.h); ctx.setLineDash([]);
+    ctx.fillStyle='#cfe0ff';
+    ctx.font='12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText('Текущий субъект РФ:', tr.x+10, tr.y+18);
+    ctx.font='bold 14px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(getName(current), tr.x+10, tr.y+38);
     ctx.restore();
   }
+
   function buildPick(){
     pick.save();
     pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
     pick.clearRect(0,0,cv.width,cv.height);
-
     const p = pieces[current];
-    if(!p.locked){
-      const sr = spawnRect();
-      const {sx,sy} = screenAnchor(p.i, p);
-      const insideSpawn = (sx>=sr.x && sx<=sr.x+sr.w && sy>=sr.y && sy<=sr.y+sr.h);
-
-      if(insideSpawn){
-        pick.setTransform(dpr,0,0,dpr,0,0);
-        pick.beginPath(); pick.rect(sr.x, sr.y, sr.w, sr.h); pick.clip();
-        pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
-      }
-
+    if(!p.locked && !p.inTray){
       pick.save(); pick.translate(p.dx,p.dy);
       pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
       pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
@@ -359,10 +363,11 @@
     }
     pick.restore();
   }
+
   function drawAll(rebuild=false){
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cv.width,cv.height);
-    drawMapSilhouette(); drawPieces(); drawSpawnOverlay();
+    drawMap(); drawPieces(); drawTray();
     if(rebuild) buildPick();
   }
 
@@ -374,126 +379,126 @@
   function snapRadiusBy(diff){ return diff==='easy'?60:(diff==='medium'?30:12); }
   difEl.addEventListener('change',()=>{ if(difficultyLocked){ alert('Сложность нельзя менять после установки первой детали. Нажмите «Сбросить» для новой игры.'); } });
 
-  // ===== Управление: drag/pan/zoom + пинч-зум =====
-  let draggingPiece=false, draggingPan=false, dragOff={x:0,y:0}, panOff={x:0,y:0};
+  // ===== Управление: drag / pan / zoom + пинч-зум =====
+  let draggingPiece=false, draggingFromTray=false, draggingPan=false, dragOff={x:0,y:0}, panOff={x:0,y:0};
   const pointers=new Map(); let pinch=null;
 
-  function pickAt(x,y){
-    const px=Math.max(0,Math.min(cv.width-1,Math.round(x*dpr)));
-    const py=Math.max(0,Math.min(cv.height-1,Math.round(y*dpr)));
-    const d=pick.getImageData(px,py,1,1).data; return d[3]>0;
-  }
-  function inSpawnZone(x,y){ const sr=spawnRect(); return x>=sr.x && x<=sr.x+sr.w && y>=sr.y && y<=sr.y+sr.h; }
   function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
-
-  function startPinch(){
-    const pts=[...pointers.values()]; if(pts.length<2) return;
-    const a=pts[0], b=pts[1];
-    const cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
-    pinch = {
-      cx, cy, d0: dist(a,b),
-      k0: view.k, x0:view.x, y0:view.y,
-      world: screenToWorld(cx,cy)
-    };
-  }
-  function updatePinch(){
-    if(!pinch) return;
-    const pts=[...pointers.values()]; if(pts.length<2) return;
-    const a=pts[0], b=pts[1];
-    const d1=dist(a,b); if(d1<=0) return;
-    const factor=d1/pinch.d0;
-    const k=Math.max(viewMin, Math.min(viewMax, pinch.k0*factor));
-    const w=pinch.world;
-    view.k=k;
-    view.x = pinch.cx - w.x*k;
-    view.y = pinch.cy - w.y*k;
-    drawAll(true);
-  }
-
-  cv.addEventListener('pointerdown', e=>{
-    cv.setPointerCapture(e.pointerId);
-    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-    pointers.set(e.pointerId,{x,y});
-    if(pointers.size===2){
-      // если тащили деталь — прекращаем, переходим в пинч
-      draggingPiece=false; draggingPan=false;
-      startPinch(); drawAll(true); return;
-    }
-    // одиночный указатель
-    const onPiece = pickAt(x,y) || inSpawnZone(x,y);
-    if(onPiece){
-      // если кликнули в полосе — возвращаем в центр и тянем
-      if(inSpawnZone(x,y)){ applySpawn(current); buildPick(); drawAll(false); }
-      draggingPiece=true;
-      const s=screenToWorld(x,y);
-      const [ax,ay]=anchors[current]; const p=pieces[current];
-      dragOff={x: s.x-(ax+p.dx), y: s.y-(ay+p.dy)};
-    }else{
-      draggingPan=true; panOff={x:x - view.x, y:y - view.y};
-    }
-  });
-
-  cv.addEventListener('pointermove', e=>{
-    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-    if(pointers.has(e.pointerId)){ pointers.set(e.pointerId,{x,y}); }
-    if(pointers.size>=2){ updatePinch(); return; }
-    if(draggingPiece){
-      const s=screenToWorld(x,y);
-      const [ax,ay]=anchors[current]; const p=pieces[current];
-      p.dx=(s.x - dragOff.x) - ax; p.dy=(s.y - dragOff.y) - ay;
-      drawAll(false);
-    }else if(draggingPan){
-      view.x = x - panOff.x; view.y = y - panOff.y;
-      drawAll(true);
-    }
-  });
-
-  function finishDragAndPinch(e){
-    if(pointers.has(e.pointerId)) pointers.delete(e.pointerId);
-    if(pointers.size<2) pinch=null;
-
-    if(draggingPiece){
-      const p=pieces[current];
-      const remaining = TOTAL - placed; // до фиксации текущей
-      const distSnap=Math.hypot(p.dx,p.dy);
-      const mustAutoSnap = (remaining === 1);      // последняя деталь
-      if(mustAutoSnap || distSnap < snapRadiusBy(difEl.value)){
-        p.dx=0; p.dy=0;
-        if(!p.locked){
-          p.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`;
-          if(!startAt) startAt=performance.now();
-          if(!difficultyLocked){ difEl.disabled=true; difficultyLocked=true; }
-          if(placed>=TOTAL && !finished){
-            finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f'; persistResult();
-          }else{
-            do{ cursor++; }while(cursor<TOTAL && pieces[order[cursor]]?.locked);
-            if(cursor<TOTAL){ setCurrent(order[cursor]); }
-          }
-        }
-      }
-      drawAll(true);
-    }
-    draggingPiece=false; draggingPan=false;
-    try{cv.releasePointerCapture(e.pointerId);}catch{}
-  }
-
-  cv.addEventListener('pointerup', finishDragAndPinch);
-  cv.addEventListener('pointercancel', finishDragAndPinch);
-  cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const k=(e.deltaY<0)?1.15:(1/1.15); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
-
   function zoomAt(factor, cx, cy){
     const old=view.k, k=Math.max(viewMin, Math.min(viewMax, old*factor));
     const w=screenToWorld(cx,cy);
     view.k=k; view.x = cx - w.x*k; view.y = cy - w.y*k; drawAll(true);
   }
+
+  function startPinch(){
+    const pts=[...pointers.values()]; if(pts.length<2) return;
+    const a=pts[0], b=pts[1]; const cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+    pinch = { cx, cy, d0: dist(a,b), k0:view.k, world: screenToWorld(cx,cy) };
+  }
+  function updatePinch(){
+    if(!pinch) return;
+    const pts=[...pointers.values()]; if(pts.length<2) return;
+    const a=pts[0], b=pts[1]; const d1=dist(a,b); if(d1<=0) return;
+    const factor=d1/pinch.d0; const k=Math.max(viewMin, Math.min(viewMax, pinch.k0*factor));
+    const w=pinch.world; view.k=k; view.x = pinch.cx - w.x*k; view.y = pinch.cy - w.y*k; drawAll(true);
+  }
+
+  function inTray(x,y){ const tr=trayRect(); return x>=tr.x && x<=tr.x+tr.w && y>=tr.y && y<=tr.y+tr.h; }
+
+  cv.addEventListener('pointerdown', e=>{
+    cv.setPointerCapture(e.pointerId);
+    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    pointers.set(e.pointerId,{x,y});
+    if(pointers.size===2){ draggingPiece=false; draggingPan=false; startPinch(); drawAll(true); return; }
+
+    const p = pieces[current];
+    if(!p.locked && inTray(x,y)){
+      // начинаем тянуть из лотка
+      draggingPiece=true; draggingFromTray=true;
+    }else{
+      // проверяем «на карте»: попали ли в текущую деталь (если она уже на карте)
+      const px=Math.max(0,Math.min(cv.width-1,Math.round(x*dpr))), py=Math.max(0,Math.min(cv.height-1,Math.round(y*dpr)));
+      const d=pick.getImageData(px,py,1,1).data; const onPiece = (d[3]>0);
+      if(onPiece){ draggingPiece=true; draggingFromTray=false;
+        const s=screenToWorld(x,y); const [ax,ay]=anchors[current];
+        dragOff={x: s.x-(ax+p.dx), y: s.y-(ay+p.dy)};
+      }else{
+        draggingPan=true; panOff={x:x - view.x, y:y - view.y};
+      }
+    }
+  });
+
+  cv.addEventListener('pointermove', e=>{
+    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    if(pointers.has(e.pointerId)) pointers.set(e.pointerId,{x,y});
+    if(pointers.size>=2){ updatePinch(); return; }
+
+    const p=pieces[current];
+    if(draggingPiece){
+      if(draggingFromTray){
+        // как только вышли за верхнюю границу лотка — переносим деталь на карту и продолжаем обычный drag
+        const tr=trayRect();
+        if(y < tr.y){
+          // переводим в мировые dx,dy так, чтобы якорь оказался под курсором/пальцем
+          const s=screenToWorld(x,y); const [ax,ay]=anchors[current];
+          p.inTray=false; p.dx = s.x - ax; p.dy = s.y - ay;
+          // рассчитываем смещение для дальнейшего перетаскивания
+          dragOff={x:0,y:0};
+          draggingFromTray=false;
+          buildPick();
+        }
+      }else{
+        const s=screenToWorld(x,y); const [ax,ay]=anchors[current];
+        p.dx = s.x - ax - dragOff.x; p.dy = s.y - ay - dragOff.y;
+      }
+      drawAll(false);
+    }else if(draggingPan){
+      view.x = x - panOff.x; view.y = y - panOff.y; drawAll(true);
+    }
+  });
+
+  function endPointer(e){
+    if(pointers.has(e.pointerId)) pointers.delete(e.pointerId);
+    if(pointers.size<2) pinch=null;
+
+    if(draggingPiece){
+      const p=pieces[current];
+      // если отпустили, пока ещё в лотке — остаётся в лотке (ничего не делаем)
+      if(!p.inTray){
+        const remaining = TOTAL - placed;
+        const distSnap=Math.hypot(p.dx,p.dy);
+        const mustAutoSnap = (remaining === 1); // последняя деталь — автофиксация
+        if(mustAutoSnap || distSnap < snapRadiusBy(difEl.value)){
+          p.dx=0; p.dy=0;
+          if(!p.locked){
+            p.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`;
+            if(!startAt) startAt=performance.now();
+            if(!difficultyLocked){ difEl.disabled=true; difficultyLocked=true; }
+            if(placed>=TOTAL && !finished){
+              finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f'; persistResult();
+            }else{
+              do{ cursor++; }while(cursor<TOTAL && pieces[order[cursor]]?.locked);
+              if(cursor<TOTAL){ setCurrent(order[cursor]); }
+            }
+          }
+        }
+      }
+      drawAll(true);
+    }
+    draggingPiece=false; draggingFromTray=false; draggingPan=false;
+    try{cv.releasePointerCapture(e.pointerId);}catch{}
+  }
+  cv.addEventListener('pointerup', endPointer);
+  cv.addEventListener('pointercancel', endPointer);
+
+  cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const k=(e.deltaY<0)?1.15:(1/1.15); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
+
+  // Кнопки управления
   zoomInBtn.onclick  = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1.2, r.width/2, r.height/2); };
   zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
-
-  // ===== Кнопки =====
-  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижней пунктирной полосы на карту.\n• Масштаб/перемещение: колесо мыши, один палец — панорамирование, два пальца — пинч-зум.\n• После установки первой детали сложность фиксируется до «Сбросить».\n• «Вернуть деталь» — помещает текущую незакреплённую деталь в стартовую полосу.\n• «Центрировать карту» — исходный вид.');
-
-  returnBtn.onclick = ()=>{ const p=pieces[current]; if(!p.locked){ applySpawn(current); buildPick(); drawAll(true); } };
-  centerBtn.onclick  = ()=>{ fitView(); applySpawn(current); buildPick(); drawAll(true); };
+  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижнего «лотка» на карту: потяните вверх за край лотка.\n• Масштаб/перемещение: колесо мыши; на телефоне — один палец панорамирование, два пальца — пинч-зум.\n• После установки первой детали сложность фиксируется до «Сбросить».\n• «Вернуть деталь» — возвращает текущую незакреплённую деталь в лоток.\n• «Центрировать карту» — исходный вид.');
+  returnBtn.onclick = ()=>{ const p=pieces[current]; if(!p.locked){ setPieceInTray(current, true); buildPick(); drawAll(true); } };
+  centerBtn.onclick  = ()=>{ fitView(); if(!pieces[current].locked){ setPieceInTray(current, true); buildPick(); } drawAll(true); };
 
   // ===== Профиль, сброс =====
   try{ const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}'); if(saved.fio) fioEl.value=saved.fio; if(saved.group) groupEl.value=saved.group; if(saved.difficulty) difEl.value=saved.difficulty; }catch{}
@@ -501,7 +506,7 @@
 
   document.getElementById('reset').onclick = ()=>{
     placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00';
-    for(const p of pieces){ p.locked=false; p.dx=0; p.dy=0; }
+    for(const p of pieces){ p.locked=false; p.dx=0; p.dy=0; p.inTray=true; }
     order=d3.shuffle(d3.range(TOTAL)); cursor=0; difficultyLocked=false; difEl.disabled=false;
     fitProjection(); rebuildGeometry(); fitView(); setCurrent(order[cursor]); drawAll(true);
   };
