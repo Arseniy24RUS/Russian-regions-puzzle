@@ -3,66 +3,69 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>Собери карту России — Canvas-пазл (89 регионов) с диагностикой</title>
+  <title>Собери карту России — Canvas-пазл (по одному субъекту)</title>
   <style>
-    :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; --ok:#34d399; --warn:#fbbf24; --err:#ef4444 }
+    :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; --ok:#34d399; --warn:#fbbf24; }
     html,body{height:100%;margin:0;background:var(--bg);color:#e7eeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-    *{box-sizing:border-box;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
-    .wrap{max-width:1200px;margin:0 auto;padding:10px}
-    .card{background:var(--panel);border:1px solid #1d2745;border-radius:14px;padding:12px;box-shadow:0 8px 20px rgba(0,0,0,.25)}
-    h1{font-size:18px;margin:0 0 8px}
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .pill{display:inline-flex;align-items:center;gap:6px;background:#0f1733;border:1px solid #223062;border-radius:999px;padding:6px 10px;font-size:12px;color:#cfe0ff}
-    .btn{background:#0f1733;border:1px solid #223062;color:#e7eeff;padding:8px 12px;border-radius:10px;cursor:pointer}
-    canvas{width:100%;height:68vh;min-height:460px;background:#0a1127;border:1px solid #1d2747;border-radius:12px;display:block;touch-action:none}
-    .small{font-size:12px}.muted{color:#a9b7d6}
-    .log{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0e1430;border:1px solid #23305b;border-radius:8px;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap}
-    .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
+    *{ box-sizing:border-box; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent }
+    .wrap{ max-width:1200px; margin:0 auto; padding:10px }
+    .card{ background:var(--panel); border:1px solid #1d2745; border-radius:14px; padding:12px; box-shadow:0 8px 20px rgba(0,0,0,.25) }
+    h1{ font-size:18px; margin:0 0 8px }
+    .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .pill{ display:inline-flex; align-items:center; gap:6px; background:#0f1733; border:1px solid #223062; border-radius:999px; padding:6px 10px; font-size:12px; color:#cfe0ff }
+    .btn{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 12px; border-radius:10px; cursor:pointer }
+    .btn.primary{ background:linear-gradient(180deg,#36e1b3,#16c79a); color:#06251f; border:0; font-weight:700 }
+    canvas{ width:100%; height:74vh; min-height:520px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
+    .small{ font-size:12px } .muted{ color:var(--muted) }
+    .gap{ height:8px }
+    @media (max-width: 640px){
+      h1{ font-size:16px }
+      canvas{ height:70vh; min-height:440px }
+    }
   </style>
 </head>
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>Онлайн-пазл «Карта России» (Canvas, одиночный режим)</h1>
+    <h1>Онлайн-пазл «Карта России» (одна деталь за раз)</h1>
     <div class="row">
       <span class="pill">Поставлено: <b id="placed">0 / 89</b></span>
       <span class="pill">Время: <b id="time">00:00</b></span>
       <span class="pill">Снап: <b id="snap">20 px</b></span>
-      <button id="reset" class="btn">Сбросить</button>
-      <button id="shuffle" class="btn">Перетасовать</button>
-      <button id="help" class="btn">Подсказки</button>
+      <span class="pill">Текущий субъект: <b id="currentName">—</b></span>
     </div>
-    <p class="muted small">Файл <code>Russian_regions_TopoJSON.topojson</code> должен лежать рядом с этой страницей. Если карта не грузится — используйте «Диагностику» справа.</p>
+    <div class="row" style="margin-top:6px">
+      <button id="reset" class="btn">Сбросить</button>
+      <button id="shuffle" class="btn">Перетасовать порядок</button>
+      <button id="help" class="btn">Подсказки</button>
+      <span style="flex:1"></span>
+      <button id="panToggle" class="btn">Режим карты: выкл</button>
+      <button id="zoomOut" class="btn">−</button>
+      <button id="zoomIn" class="btn">+</button>
+    </div>
+    <p class="muted small">Файл <code>Russian_regions_TopoJSON.topojson</code> должен лежать рядом со страницей. На телефоне: включите «Режим карты» для перемещения/масштабирования, затем выключите его, чтобы ставить фрагмент.</p>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr .45fr;gap:10px;margin-top:10px">
-    <div class="card">
-      <canvas id="cv" width="1000" height="640"></canvas>
-      <div class="row muted small" style="margin-top:6px;justify-content:space-between">
-        <span>Перетаскивайте регионы. При попадании в радиус снапа деталь «прилипает».</span>
-        <span id="status" class="pill">Загрузка карты…</span>
-      </div>
-    </div>
-    <div class="card">
-      <h2 class="small" style="margin:0 0 6px">Диагностика</h2>
-      <div id="diag" class="log">Старт…</div>
+  <div class="gap"></div>
+
+  <div class="card">
+    <canvas id="cv" width="1000" height="680"></canvas>
+    <div class="row muted small" style="margin-top:6px; justify-content:space-between">
+      <span id="status" class="pill">Загрузка карты…</span>
     </div>
   </div>
 </div>
-  
-<script>
-  console.log('D3 loaded?', !!window.d3, 'version:', window.d3 && window.d3.version);
-  console.log('geoMercator type:', typeof (window.d3 && window.d3.geoMercator));
-</script>
 
+<!-- Полный бандл D3 (включает geo и zoom) и UMD topojson -->
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 
 <script>
 (async function(){
-  const TOPO = 'Russian_regions_TopoJSON.topojson';
-  const URL  = TOPO + '?v=' + Date.now();
-  const TOTAL = 89, SNAP = 20;
+  const TOPO_NAME = 'Russian_regions_TopoJSON.topojson';
+  const TOPO_URL = TOPO_NAME + '?v=' + Date.now();
+  const TOTAL = 89;
+  const SNAP = 20;
 
   const cv = document.getElementById('cv');
   const ctx = cv.getContext('2d');
@@ -71,79 +74,97 @@
   const timeEl = document.getElementById('time');
   const snapEl = document.getElementById('snap');
   const statusEl = document.getElementById('status');
-  const logEl = document.getElementById('diag');
-
-  function log(m,c){ const d=document.createElement('div'); if(c) d.className=c; d.textContent=m; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+  const currentNameEl = document.getElementById('currentName');
+  const panBtn = document.getElementById('panToggle');
+  const zoomInBtn = document.getElementById('zoomIn');
+  const zoomOutBtn = document.getElementById('zoomOut');
 
   snapEl.textContent = SNAP + ' px';
 
-  // --- DPI/размеры строго согласованы и кратны целому ---
+  // DPI и вью-трансформации
   let dpr = 1;
+  let view = { k: 1, x: 0, y: 0 };     // экранные px
+  const viewMin = 0.8, viewMax = 3.5;
+
   function fitCanvas(){
     const r = cv.getBoundingClientRect();
     dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = Math.max(1, Math.floor(r.width  * dpr));
-    const h = Math.max(1, Math.floor((r.height || 480) * dpr));
+    const h = Math.max(1, Math.floor((r.height || 540) * dpr));
     cv.width = w; cv.height = h;
+    // базовый dpr: остальной трансформ прикладываем при отрисовке
     ctx.setTransform(dpr,0,0,dpr,0,0);
-
     pick.canvas.width = w; pick.canvas.height = h;
     pick.setTransform(dpr,0,0,dpr,0,0);
   }
-  fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); if(drawAll) drawAll(true); });
+  fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); drawAll(true); });
 
-  // --- Загрузка TopoJSON ---
-  try{
-    const head = await fetch(URL, {method:'HEAD',cache:'no-store'});
-    if(head.ok) log(`HEAD ${TOPO}: OK (${head.status})`, 'ok');
-    else log(`HEAD ${TOPO}: HTTP ${head.status} — продолжим с GET`, 'warn');
-  }catch(e){ log(`HEAD ${TOPO}: исключение (допустимо): ${e}`, 'warn'); }
-
+  // Загрузка карты
   let topo;
   try{
-    const res = await fetch(URL, {cache:'no-store'});
-    if(!res.ok){ log(`GET ${TOPO}: HTTP ${res.status}`, 'err'); statusEl.textContent='Карта не найдена'; statusEl.classList.add('err'); return; }
+    const res = await fetch(TOPO_URL, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
     topo = await res.json();
-  }catch(e){ log('Ошибка чтения/парсинга TopoJSON: '+e, 'err'); statusEl.textContent='Формат карты неверен'; statusEl.classList.add('err'); return; }
-
+  }catch(e){
+    statusEl.textContent = 'Карта не найдена'; statusEl.style.background = '#5b1020';
+    console.error(e); return;
+  }
   if(!topo || topo.type!=='Topology' || !topo.objects){
-    log('Неверная структура TopoJSON (нет type="Topology" или objects)', 'err');
-    statusEl.textContent='Формат карты неверен'; statusEl.classList.add('err'); return;
+    statusEl.textContent = 'Неверный формат карты'; statusEl.style.background = '#5b1020';
+    return;
   }
 
+  // Выбираем объект с полигонами и числом геометрий ~ 89
   const keys = Object.keys(topo.objects);
-  log(`Найдено topo.objects: [${keys.join(', ')}]`);
   const chosen = keys.map(k=>{
     const g = topo.objects[k].geometries||[];
     const n = g.length|0;
-    const hasPoly = g.some(geom => /Polygon/i.test(geom.type||''));
-    const score = (hasPoly?0:1000) + Math.abs(n - TOTAL);
+    const hasPoly = g.some(geom=>/Polygon/i.test(geom.type||''));
+    const score = (hasPoly?0:1000) + Math.abs(n-TOTAL);
     return {k,n,hasPoly,score};
   }).sort((a,b)=>a.score-b.score)[0];
-  log(`Выбран объект: ${chosen.k} (геометрий: ${chosen.n}, полигоны: ${chosen.hasPoly?'да':'нет'})`, 'ok');
 
-  let geo; try{ geo = topojson.feature(topo, topo.objects[chosen.k]); }
-  catch(e){ log('topojson.feature: '+e, 'err'); statusEl.textContent='Ошибка разборки TopoJSON'; statusEl.classList.add('err'); return; }
-
+  const geo = topojson.feature(topo, topo.objects[chosen.k]);
   const features = geo.features;
-  log(`features: ${features.length} (ожидаем ~89)`, features.length===TOTAL?'ok':'warn');
 
-  // --- Проекция и смещения ---
-  let projection = d3.geoMercator();
+  // Определяем поле с названием субъекта
+  const nameKey = (function(){
+    const keysFreq = {};
+    for(const f of features){
+      const p = f.properties||{};
+      for(const k in p){
+        const v = p[k];
+        if(typeof v === 'string' && v.length>=3){
+          keysFreq[k] = (keysFreq[k]||0) + (/[\u0400-\u04FF]/.test(v) ? 2 : 1); // +2 за кириллицу
+          if(/name/i.test(k)) keysFreq[k]+=2;
+          if(/subj|region|obl|край|респ/i.test(k)) keysFreq[k]+=1;
+        }
+      }
+    }
+    const sorted = Object.entries(keysFreq).sort((a,b)=>b[1]-a[1]);
+    return sorted.length ? sorted[0][0] : null;
+  })();
+
+  function subjName(i){
+    const p = features[i].properties||{};
+    return (nameKey && p[nameKey]) ? String(p[nameKey]) : `Субъект №${i+1}`;
+  }
+
+  // Проекция: вращаем так, чтобы линия смены дат ушла в Атлантику — Чукотка не будет «рваться»
+  let projection = d3.geoMercator().rotate([-105, 0]); // центрируем на России
   let _offset = {x:8,y:8};
   function fitProjection(){
-    const w = Math.floor(cv.width  / dpr);
+    const w = Math.floor(cv.width / dpr);
     const h = Math.floor(cv.height / dpr);
-    const mapW = Math.max(480, Math.floor(w*0.58));
-    const mapH = Math.max(240, h-20);
-    projection = d3.geoMercator();
+    const mapW = Math.max(520, Math.floor(w*0.60));
+    const mapH = Math.max(280, h - 20);
+    projection = d3.geoMercator().rotate([-105, 0]); // важно: rotate ДО fitSize
     projection.fitSize([mapW, mapH], geo);
-    _offset = {x:8,y:8};
+    _offset = {x:8, y:8};
   }
-  fitProjection();
-  window.addEventListener('resize', ()=>{ fitProjection(); });
+  fitProjection(); window.addEventListener('resize', ()=>{ fitProjection(); });
 
-  // --- Построение путей ---
+  // Построение контуров
   function buildPath2D(f){
     const p = new Path2D();
     const geom = f.geometry||{};
@@ -164,29 +185,36 @@
   }
   const paths = features.map(buildPath2D);
 
-  // Центроиды (в экранных координатах)
+  // Центроиды целей (в «мировых» координатах, до масштабирования view)
   const gp = d3.geoPath(projection);
   const targets = features.map(f=>{ const c=gp.centroid(f); return [c[0]+_offset.x, c[1]+_offset.y]; });
 
+  // Состояние
   const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false }));
+  let order = d3.shuffle(d3.range(features.length)); // случайный порядок постановки
+  let cursor = 0; // индекс в порядке
+  let current = order[cursor]; // текущий субъект
 
-  function intWH(){ return {
-    w: Math.max(1, Math.floor(cv.width  / dpr)),
-    h: Math.max(1, Math.floor(cv.height / dpr))
-  };}
+  function setCurrent(i){
+    current = i;
+    currentNameEl.textContent = subjName(i);
+    spawnCurrentPiece();
+    drawAll(true);
+  }
 
-  // Оценка bbox через «пик»-канвас (всё в целых пикселях)
+  // bbox для Path2D (в мировых координатах)
   function bboxPath(path){
-    const {w,h} = intWH();
-    const step = 4;
+    // рисуем без view-масштаба, только под dpr
+    const w = Math.floor(cv.width / dpr), h = Math.floor(cv.height / dpr), step=4;
     pick.save();
+    pick.setTransform(dpr,0,0,dpr,0,0);
     pick.clearRect(0,0,w,h);
     pick.beginPath(); pick.fillStyle='#fff'; pick.fill(path);
     const data = pick.getImageData(0,0,w,h).data;
     let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
     for(let y=0;y<h;y+=step){
       for(let x=0;x<w;x+=step){
-        const a = data[((y)*w + (x))*4 + 3];
+        const a = data[(y*w + x)*4 + 3];
         if(a>0){ if(x<minX)minX=x; if(y<minY)minY=y; if(x>maxX)maxX=x; if(y>maxY)maxY=y; }
       }
     }
@@ -195,114 +223,195 @@
     return {x:minX,y:minY,w:maxX-minX+1,h:maxY-minY+1};
   }
 
-  function spawnPieces(){
-    const {w,h} = intWH();
-    pieces.forEach(p=>{
-      const bb = bboxPath(paths[p.i]);
-      const trayX = w*0.60 + Math.random()*Math.max(20,(w*0.36-(bb.w+20)));
-      const trayY = 16 + Math.random()*Math.max(20,(h-(bb.h+32)));
-      p.dx = trayX - bb.x; p.dy = trayY - bb.y; p.locked=false;
-    });
+  function spawnCurrentPiece(){
+    const w = Math.floor(cv.width / dpr), h = Math.floor(cv.height / dpr);
+    const i = current;
+    const bb = bboxPath(paths[i]);
+    const trayX = w*0.62 + Math.random()*Math.max(20,(w*0.34 - (bb.w+20)));
+    const trayY = 16 + Math.random()*Math.max(20,(h - (bb.h+32)));
+    const p = pieces[i];
+    if(!p.locked){
+      p.dx = trayX - bb.x; p.dy = trayY - bb.y;
+    }
   }
-  spawnPieces();
 
-  // Отрисовка «мишени» и деталей
+  function nextSubject(){
+    // найти следующий незафиксированный
+    while(cursor < order.length && pieces[order[cursor]].locked) cursor++;
+    if(cursor >= order.length){
+      statusEl.textContent = 'Готово! ' + timeEl.textContent;
+      statusEl.style.background = '#0a3b2f';
+      return;
+    }
+    setCurrent(order[cursor]);
+  }
+
+  // Отрисовка (учитываем view)
+  function setSceneTransform(c){
+    c.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
+  }
+
   function drawTarget(){
-    ctx.save();
+    ctx.save(); setSceneTransform(ctx);
     for(let i=0;i<paths.length;i++){
       ctx.fillStyle = '#10224a'; ctx.globalAlpha = 0.18; ctx.fill(paths[i]);
-      ctx.globalAlpha = 1; ctx.strokeStyle = '#25407a'; ctx.lineWidth = 1; ctx.stroke(paths[i]);
+      ctx.globalAlpha = 1; ctx.strokeStyle = '#25407a'; ctx.lineWidth = (1/view.k);
+      ctx.stroke(paths[i]);
     }
     ctx.restore();
   }
   function drawPieces(){
+    ctx.save(); setSceneTransform(ctx);
     for(const p of pieces){
+      if(!p.locked && p.i !== current) continue; // рисуем только текущий и зафиксированные
       ctx.save(); ctx.translate(p.dx,p.dy);
       ctx.fillStyle = p.locked ? '#37cc91' : '#7cb8ff';
       ctx.globalAlpha = p.locked ? 0.95 : 0.9;
-      ctx.strokeStyle = '#0a2a4f'; ctx.lineWidth = 0.8;
+      ctx.strokeStyle = '#0a2a4f'; ctx.lineWidth = Math.max(0.8/view.k, 0.5);
       ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]);
       ctx.restore();
     }
-  }
-
-  function id2color(id){ const r=(id&255), g=(id>>8)&255; return `rgb(${r},${g},1)`; }
-  function color2id(r,g,b){ return r + (g<<8); }
-
-  function orderedPieces(){
-    const a = pieces.slice();
-    a.sort((x,y)=>{ if(x===drag) return 1; if(y===drag) return -1; return (x.locked===y.locked)?0:(x.locked?-1:1); });
-    return a;
+    ctx.restore();
   }
   function buildPick(){
-    const {w,h} = intWH();
+    const w = Math.floor(cv.width / dpr), h = Math.floor(cv.height / dpr);
     pick.save();
+    // та же трансформация, что и при отрисовке
+    pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
     pick.clearRect(0,0,w,h);
-    for(const p of orderedPieces()){
-      pick.save(); pick.translate(p.dx,p.dy);
-      const c = id2color(p.i);
-      pick.fillStyle=c; pick.strokeStyle=c;
-      pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
-      pick.restore();
-    }
+    // для выбора достаточно текущего фрагмента
+    const p = pieces[current];
+    pick.save(); pick.translate(p.dx,p.dy);
+    pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
+    pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
+    pick.restore();
     pick.restore();
   }
   function drawAll(rebuild=false){
+    ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cv.width,cv.height);
     drawTarget(); drawPieces();
     if(rebuild) buildPick();
   }
 
-  // Таймер и перетаскивание
+  // Таймер
   let startAt=null, finished=false, placed=0;
-  const fmt=ms=>{const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0');return `${String(m).padStart(2,'0')}:${ss}`};
-  (function tick(){ if(!finished && startAt){ timeEl.textContent=fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
+  function fmt(ms){ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}` }
+  (function tick(){ if(!finished && startAt){ timeEl.textContent = fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
 
-  let drag=null, off={x:0,y:0};
+  // Координатные преобразования экран→мир (без dpr)
+  function screenToWorld(x,y){ return { x:(x - view.x)/view.k, y:(y - view.y)/view.k }; }
+
+  // Перетаскивание фрагмента / панорамирование
+  let dragPiece=null, dragOff={x:0,y:0}, panMode=false, panStart=null;
+
   function pickAt(x,y){
-    const {w,h}=intWH();
-    const px=Math.min(w-1, Math.max(0, Math.round(x*dpr)));
-    const py=Math.min(h-1, Math.max(0, Math.round(y*dpr)));
-    const d=pick.getImageData(px,py,1,1).data; if(d[3]===0) return null;
-    const id=color2id(d[0],d[1],d[2]); return pieces.find(p=>p.i===id);
+    // выбор по пик-канвасу: используем тот же dpr*view
+    const px = Math.max(0, Math.min(cv.width-1, Math.round(x*dpr)));
+    const py = Math.max(0, Math.min(cv.height-1, Math.round(y*dpr)));
+    const d = pick.getImageData(px,py,1,1).data;
+    return (d[3]>0) ? pieces[current] : null;
   }
+
   function onDown(e){
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-    const p=pickAt(x,y); if(!p||p.locked) return;
-    drag=p; const [cx,cy]=targets[p.i]; off.x=x-(cx+p.dx); off.y=y-(cy+p.dy);
+    if(panMode){
+      panStart = { x, y, vx:view.x, vy:view.y };
+      return;
+    }
+    const p = pickAt(x,y);
+    if(!p || p.locked) return;
+    dragPiece = p;
+    const [cx,cy] = targets[p.i];
+    const s = screenToWorld(x,y);
+    dragOff.x = s.x - (cx + p.dx);
+    dragOff.y = s.y - (cy + p.dy);
   }
   function onMove(e){
-    if(!drag) return;
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-    const [cx,cy]=targets[drag.i]; drag.dx=(x-off.x)-cx; drag.dy=(y-off.y)-cy; drawAll(false);
+    if(panMode && panStart){
+      view.x = panStart.vx + (x - panStart.x);
+      view.y = panStart.vy + (y - panStart.y);
+      drawAll(true);
+      return;
+    }
+    if(!dragPiece) return;
+    const [cx,cy] = targets[dragPiece.i];
+    const s = screenToWorld(x,y);
+    dragPiece.dx = (s.x - dragOff.x) - cx;
+    dragPiece.dy = (s.y - dragOff.y) - cy;
+    drawAll(false);
   }
   function onUp(e){
-    if(!drag) return;
-    const [cx,cy]=targets[drag.i];
+    if(panMode){ panStart=null; return; }
+    if(!dragPiece) return;
+    const [cx,cy] = targets[dragPiece.i];
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-    const dist=Math.hypot((cx+drag.dx)-x+off.x,(cy+drag.dy)-y+off.y);
-    if(dist<SNAP){
-      drag.dx=0; drag.dy=0;
-      if(!drag.locked){ drag.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`;
-        if(placed===1 && !startAt) startAt=performance.now();
-        if(placed>=TOTAL && !finished){ finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.classList.add('ok'); }
+    const s = screenToWorld(x,y);
+    const dist = Math.hypot((cx + dragPiece.dx) - s.x + dragOff.x, (cy + dragPiece.dy) - s.y + dragOff.y);
+    if(dist < SNAP){
+      dragPiece.dx = 0; dragPiece.dy = 0;
+      if(!dragPiece.locked){
+        dragPiece.locked = true;
+        placed++; placedEl.textContent = `${placed} / ${TOTAL}`;
+        if(placed===1 && !startAt) startAt = performance.now();
+        cursor++; nextSubject();
       }
     }
-    drag=null; drawAll(true);
+    dragPiece = null;
+    drawAll(true);
   }
   cv.addEventListener('pointerdown', e=>{ cv.setPointerCapture(e.pointerId); onDown(e); });
   cv.addEventListener('pointermove', onMove);
   cv.addEventListener('pointerup',   e=>{ onUp(e); try{cv.releasePointerCapture(e.pointerId);}catch{} });
-  cv.addEventListener('pointercancel', ()=>{ drag=null; });
+  cv.addEventListener('pointercancel', ()=>{ dragPiece=null; panStart=null; });
 
-  // Кнопки
-  document.getElementById('reset').onclick = ()=>{ placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00'; pieces.forEach(p=>{ p.locked=false; p.dx=0; p.dy=0; }); spawnPieces(); drawAll(true); };
-  document.getElementById('shuffle').onclick = ()=>{ spawnPieces(); drawAll(true); };
-  document.getElementById('help').onclick = ()=>{ alert('Цель: перетащить все субъекты РФ на карту. При попадании в радиус '+SNAP+' пикселей деталь «прилипает». Таймер стартует при установке первой детали.'); };
+  // Зум кнопками (с фокусом на центр)
+  function zoomAt(factor, cx, cy){
+    const old = view.k;
+    const k = Math.max(viewMin, Math.min(viewMax, old * factor));
+    factor = k / old;
+    const w = screenToWorld(cx, cy);
+    view.k = k;
+    view.x = cx - w.x * k;
+    view.y = cy - w.y * k;
+    drawAll(true);
+  }
+  zoomInBtn.onclick  = ()=> zoomAt(1.2, cv.getBoundingClientRect().width/2, cv.getBoundingClientRect().height/2);
+  zoomOutBtn.onclick = ()=> zoomAt(1/1.2, cv.getBoundingClientRect().width/2, cv.getBoundingClientRect().height/2);
 
-  statusEl.textContent='Карта загружена'; statusEl.classList.add('ok');
-  log('Готово к игре','ok');
-  drawAll(true);
+  // Колёсико мыши (на десктопе)
+  cv.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    const rect = cv.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const f = (e.deltaY < 0) ? 1.15 : (1/1.15);
+    zoomAt(f, cx, cy);
+  }, {passive:false});
+
+  // Кнопки режима
+  panBtn.onclick = ()=>{
+    panMode = !panMode;
+    panBtn.textContent = `Режим карты: ${panMode ? 'вкл' : 'выкл'}`;
+  };
+  document.getElementById('reset').onclick = ()=>{
+    placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00';
+    pieces.forEach(p=>{ p.locked=false; p.dx=0; p.dy=0; });
+    order = d3.shuffle(d3.range(features.length)); cursor=0;
+    view={k:1,x:0,y:0}; fitProjection(); setCurrent(order[cursor]); drawAll(true);
+  };
+  document.getElementById('shuffle').onclick = ()=>{
+    order = d3.shuffle(order); cursor=0;
+    pieces.forEach(p=>{ if(!p.locked){ p.dx=0; p.dy=0; }});
+    setCurrent(order[cursor]); drawAll(true);
+  };
+  document.getElementById('help').onclick = ()=>{
+    alert('Режим:\n— Игра показывает название субъекта РФ. Перетащите именно этот фрагмент на карту.\n— Включите «Режим карты», чтобы двигать/масштабировать карту (особенно на телефоне). Выключите — чтобы снова перетаскивать фрагмент.\n— При попадании в радиус снапа деталь прилипает. После фиксации даётся следующий субъект.\n— Таймер стартует при установке первой детали.');
+  };
+
+  // Старт
+  statusEl.textContent='Карта загружена'; statusEl.style.background='#0f2a4b';
+  setCurrent(order[cursor]);
 })();
 </script>
 </body>
