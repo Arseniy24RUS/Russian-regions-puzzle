@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Собери карту России — быстрый Canvas‑пазл (89 регионов)</title>
+  <style>
+    :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; --accent:#58e0b9; --line:#27345a; --ok:#34d399; --warn:#fbbf24; }
+    html,body{height:100%;margin:0;background:var(--bg);color:#e7eeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+    *{ box-sizing:border-box; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent }
+    .wrap{ max-width:1200px; margin:0 auto; padding:10px }
+    .card{ background:var(--panel); border:1px solid #1d2745; border-radius:14px; padding:12px; box-shadow:0 8px 20px rgba(0,0,0,.25) }
+    h1{ font-size:18px; margin:0 0 8px }
+    .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .pill{ display:inline-flex; align-items:center; gap:6px; background:#0f1733; border:1px solid #223062; border-radius:999px; padding:6px 10px; font-size:12px; color:#cfe0ff }
+    .btn{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 12px; border-radius:10px; cursor:pointer }
+    .btn.primary{ background:linear-gradient(180deg,#36e1b3,#16c79a); color:#06251f; border:0; font-weight:700 }
+    .grid{ display:grid; grid-template-columns:1fr; gap:10px }
+    @media(min-width:980px){ .grid{ grid-template-columns:1.6fr .4fr } }
+    canvas{ width:100%; height:68vh; min-height:460px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
+    .muted{ color:var(--muted) }
+    .small{ font-size:12px }
+    .legend{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .kbd{ font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0e1430; border:1px solid #23305b; border-radius:6px; padding:2px 6px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Онлайн‑пазл «Карта России» (Canvas, одиночный режим)</h1>
+    <div class="row">
+      <span class="pill">Поставлено: <b id="placed">0 / 89</b></span>
+      <span class="pill">Время: <b id="time">00:00</b></span>
+      <span class="pill">Снап: <b id="snap">20 px</b></span>
+      <button id="reset" class="btn">Сбросить</button>
+      <button id="shuffle" class="btn">Перетасовать детали</button>
+      <button id="help" class="btn">Подсказки</button>
+    </div>
+    <p class="muted small">Работает быстро за счёт Canvas и «цветового» хит‑тестинга. Файл <code>Russian_regions_TopoJSON.topojson</code> должен лежать рядом со страницей.</p>
+  </div>
+
+  <div class="grid" style="margin-top:10px">
+    <div class="card">
+      <canvas id="cv" width="1000" height="640"></canvas>
+      <div class="row muted small" style="margin-top:6px; justify-content:space-between">
+        <span>Совет: используйте два пальца на телефоне для прокрутки страницы, а на холсте перемещение работает одним пальцем/мышью.</span>
+        <span id="status" class="pill">Загрузка карты…</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2 class="small" style="margin:0 0 6px">Панель</h2>
+      <div class="legend small">
+        <div>🗺️ Слой «мишени»</div><div class="muted">тёмно‑синий контур карты</div>
+        <div>🧩 Фрагменты</div><div class="muted">светло‑синий; при установке — зеленеют</div>
+        <div>🎯 Снап</div><div class="muted">автопритягивание при попадании центроида в радиус</div>
+        <div>⌫ Сброс</div><div class="muted">снимает прогресс и время</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3-geo@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<script>
+(async function(){
+  const TOPO_URL = 'Russian_regions_TopoJSON.topojson'; // лежит рядом
+  const TOTAL = 89;
+  const SNAP = 20; // px
+  const canvas = document.getElementById('cv');
+  const ctx = canvas.getContext('2d');
+  const pick = document.createElement('canvas').getContext('2d'); // скрытый канвас для хит‑тестинга
+  const placedEl = document.getElementById('placed');
+  const timeEl = document.getElementById('time');
+  const snapEl = document.getElementById('snap');
+  const statusEl = document.getElementById('status');
+  snapEl.textContent = SNAP + ' px';
+
+  function fitCanvas(){
+    const r = canvas.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(r.width * dpr);
+    canvas.height = Math.round((r.height||480) * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    pick.canvas.width = canvas.width;
+    pick.canvas.height = canvas.height;
+    pick.setTransform(dpr,0,0,dpr,0,0);
+  }
+  fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); drawAll(true); });
+
+  // Загрузка карты
+  let topo;
+  try{
+    topo = await (await fetch(TOPO_URL, {cache:'no-store'})).json();
+  }catch(e){
+    statusEl.textContent = 'Карта не найдена';
+    statusEl.style.background = '#5b1020';
+    console.error(e);
+    return;
+  }
+
+  const objKey = Object.keys(topo.objects)[0];
+  const geo = topojson.feature(topo, topo.objects[objKey]);
+  const features = geo.features;
+  const placedMask = new Array(features.length).fill(false);
+
+  // Проекция
+  let projection = d3.geoMercator();
+  function fitProjection(){
+    const w = canvas.width / (window.devicePixelRatio||1);
+    const h = canvas.height / (window.devicePixelRatio||1);
+    const mapW = Math.max(480, w*0.58);
+    const mapH = h - 20;
+    projection = d3.geoMercator();
+    projection.fitSize([mapW, mapH], geo);
+    _offsetMap = {x:8, y:8};
+  }
+  let _offsetMap = {x:8,y:8};
+  fitProjection(); window.addEventListener('resize', ()=>{ fitProjection(); });
+
+  function buildPath2D(feature){
+    const p = new Path2D();
+    const geom = feature.geometry;
+    const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    polys.forEach(rings=>{
+      rings.forEach((ring, ri)=>{
+        let prev = null;
+        ring.forEach((lnglat, idx)=>{
+          const pt = projection(lnglat);
+          const x = pt[0] + _offsetMap.x;
+          const y = pt[1] + _offsetMap.y;
+          if(idx===0){ p.moveTo(x,y); prev=[x,y]; }
+          else {
+            if(Math.hypot(x - prev[0], y - prev[1]) > 0.8){ p.lineTo(x,y); prev=[x,y]; }
+          }
+        });
+        p.closePath();
+      });
+    });
+    return p;
+  }
+
+  const paths = features.map(buildPath2D);
+
+  function centroidScreen(f){
+    const gp = d3.geoPath(projection);
+    const c = gp.centroid(f);
+    return [c[0] + _offsetMap.x, c[1] + _offsetMap.y];
+  }
+  const targets = features.map(centroidScreen);
+
+  const pieces = features.map((f,i)=>({ i, dx:0, dy:0, locked:false }));
+
+  function bboxPath(path){
+    const w = canvas.width / (window.devicePixelRatio||1);
+    const h = canvas.height / (window.devicePixelRatio||1);
+    const step = 4;
+    let minX=1e9, minY=1e9, maxX=-1e9, maxY=-1e9;
+    pick.save();
+    pick.clearRect(0,0,w,h);
+    pick.beginPath();
+    pick.fillStyle = '#fff';
+    pick.fill(path);
+    const data = pick.getImageData(0,0,w,h).data;
+    for(let y=0;y<h;y+=step){
+      for(let x=0;x<w;x+=step){
+        const idx = ((y|0)*w + (x|0))*4 + 3;
+        if(data[idx] > 0){
+          if(x<minX) minX=x;
+          if(y<minY) minY=y;
+          if(x>maxX) maxX=x;
+          if(y>maxY) maxY=y;
+        }
+      }
+    }
+    pick.restore();
+    if(minX===1e9){ return {x:0,y:0,w:40,h:20}; }
+    return { x:minX, y:minY, w:(maxX-minX+1), h:(maxY-minY+1) };
+  }
+
+  function spawnPieces(){
+    const w = canvas.width / (window.devicePixelRatio||1);
+    const h = canvas.height / (window.devicePixelRatio||1);
+    pieces.forEach(p=>{
+      const bb = bboxPath(paths[p.i]);
+      const trayX = w*0.60 + Math.random() * Math.max(20, (w*0.36 - (bb.w+20)));
+      const trayY = 16 + Math.random() * Math.max(20, (h - (bb.h+32)));
+      p.dx = trayX - bb.x;
+      p.dy = trayY - bb.y;
+      p.locked = false;
+    });
+  }
+  spawnPieces();
+
+  function drawTarget(){
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#25407a';
+    for(let i=0;i<paths.length;i++){
+      ctx.globalAlpha = 1;
+      ctx.stroke(paths[i]);
+    }
+    ctx.restore();
+  }
+
+  function drawPieces(){
+    for(const p of pieces){
+      const path = paths[p.i];
+      ctx.save();
+      ctx.translate(p.dx, p.dy);
+      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = '#0a2a4f';
+      ctx.fillStyle = p.locked ? '#37cc91' : '#7cb8ff';
+      ctx.globalAlpha = p.locked ? 0.95 : 0.88;
+      ctx.fill(path);
+      ctx.stroke(path);
+      ctx.restore();
+    }
+  }
+
+  function id2color(id){ const r=(id&255), g=(id>>8)&255; return `rgb(${r},${g},1)`; }
+  function color2id(r,g,b){ return r + (g<<8); }
+
+  function orderedPieces(){
+    const arr = pieces.slice();
+    arr.sort((a,b)=>{
+      if(a===dragging) return 1;
+      if(b===dragging) return -1;
+      return (a.locked===b.locked)? 0 : (a.locked? -1 : 1);
+    });
+    return arr;
+  }
+
+  function buildPick(){
+    const w = canvas.width / (window.devicePixelRatio||1);
+    const h = canvas.height / (window.devicePixelRatio||1);
+    pick.save();
+    pick.clearRect(0,0,w,h);
+    for(const p of orderedPieces()){
+      const color = id2color(p.i);
+      pick.fillStyle = color;
+      pick.strokeStyle = color;
+      pick.translate(p.dx, p.dy);
+      pick.fill(paths[p.i]);
+      pick.stroke(paths[p.i]);
+      pick.setTransform(1,0,0,1,0,0);
+    }
+    pick.restore();
+  }
+
+  function drawAll(rebuildPick=false){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawTarget();
+    drawPieces();
+    if(rebuildPick) buildPick();
+  }
+
+  let startAt = null, finished = false, placed = 0;
+  function fmt(ms){ const s = Math.floor(ms/1000); const m=Math.floor(s/60), ss=(s%60).toString().padStart(2,'0'); return `${m.toString().padStart(2,'0')}:${ss}` }
+  function tick(){
+    if(!finished && startAt){ timeEl.textContent = fmt(performance.now()-startAt); }
+    requestAnimationFrame(tick);
+  }
+  tick();
+
+  let dragging = null;
+  let dragOff = {x:0,y:0};
+
+  function pickAt(x,y){
+    const dpr = window.devicePixelRatio||1;
+    const px = Math.round(x*dpr), py = Math.round(y*dpr);
+    const img = pick.getImageData(px,py,1,1).data;
+    if(img[3]===0) return null;
+    const id = color2id(img[0], img[1], img[2]);
+    return pieces.find(p=>p.i===id);
+  }
+
+  function onDown(ev){
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const p = pickAt(x,y);
+    if(!p || p.locked) return;
+    dragging = p;
+    const [cx,cy] = targets[p.i];
+    dragOff.x = x - (cx + p.dx);
+    dragOff.y = y - (cy + p.dy);
+  }
+  function onMove(ev){
+    if(!dragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const [cx,cy] = targets[dragging.i];
+    dragging.dx = (x - dragOff.x) - cx;
+    dragging.dy = (y - dragOff.y) - cy;
+    drawAll(false);
+  }
+  function onUp(ev){
+    if(!dragging) return;
+    const [cx,cy] = targets[dragging.i];
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const dist = Math.hypot((cx + dragging.dx) - x + dragOff.x, (cy + dragging.dy) - y + dragOff.y);
+    if(dist < SNAP){
+      dragging.dx = 0; dragging.dy = 0;
+      if(!dragging.locked){
+        dragging.locked = true;
+        placed++;
+        placedEl.textContent = `${placed} / ${TOTAL}`;
+        if(placed===1 && !startAt) startAt = performance.now();
+        if(placed>=TOTAL && !finished){
+          finished = true;
+          statusEl.textContent = 'Готово! ' + timeEl.textContent;
+          statusEl.style.background = '#0a3b2f';
+        }
+      }
+    }
+    dragging = null;
+    drawAll(true);
+  }
+  canvas.addEventListener('pointerdown', (e)=>{ canvas.setPointerCapture(e.pointerId); onDown(e); });
+  canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('pointerup', (e)=>{ onUp(e); try{canvas.releasePointerCapture(e.pointerId);}catch{} });
+  canvas.addEventListener('pointercancel', (e)=>{ dragging=null; });
+
+  document.getElementById('reset').onclick = ()=>{
+    placed=0; placedEl.textContent = `0 / ${TOTAL}`;
+    startAt=null; finished=false; timeEl.textContent = '00:00';
+    pieces.forEach(p=>{ p.locked=false; p.dx=0; p.dy=0; });
+    spawnPieces(); drawAll(true);
+  };
+  document.getElementById('shuffle').onclick = ()=>{ spawnPieces(); drawAll(true); };
+  document.getElementById('help').onclick = ()=>{
+    alert('Цель: перетащить все субъекты РФ на карту. При попадании в радиус ' + SNAP + ' пикселей деталь «прилипает». Таймер стартует при установке первой детали.');
+  };
+
+  statusEl.textContent = 'Готово к игре';
+  statusEl.style.background = '#0f2a4b';
+  drawAll(true);
+})();
+</script>
+</body>
+</html>
