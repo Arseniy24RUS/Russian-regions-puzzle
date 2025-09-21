@@ -16,7 +16,6 @@
   .btn{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 12px; border-radius:10px; cursor:pointer }
   .input{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 10px; border-radius:10px }
   select.input{ padding-right:28px }
-  .muted{ color:var(--muted) } .small{ font-size:12px }
   .grid{ display:grid; grid-template-columns:1fr; gap:10px }
   canvas#cv{ width:100%; height:72vh; min-height:520px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
   .table{ width:100%; border-collapse:collapse; font-size:13px }
@@ -137,7 +136,7 @@
   fitCanvas();
   window.addEventListener('resize', ()=>{
     fitCanvas(); fitProjection(); rebuildGeometry(); fitView();
-    // При любом ресайзе возвращаем текущую незакреплённую деталь в зону спавна
+    // при ресайзе возвращаем текущую незакреплённую деталь в зону спавна
     if(!pieces[current].locked){ applySpawn(current); buildPick(); }
     drawAll(true);
   });
@@ -238,6 +237,13 @@
   function setScene(c){ c.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y); }
   function screenToWorld(x,y){ return { x:(x - view.x)/view.k, y:(y - view.y)/view.k }; }
 
+  // ===== Вспомогательное: экранные координаты якоря детали =====
+  function screenAnchor(i, p){
+    const [ax,ay] = anchors[i];
+    const wx = ax + (p?.dx || 0), wy = ay + (p?.dy || 0);
+    return { sx: view.k*wx + view.x, sy: view.k*wy + view.y };
+  }
+
   // ===== Названия =====
   const nameKey = (()=>{ const freq={}; for(const f of features){ for(const k in (f.properties||{})){ const v=f.properties[k]; if(typeof v==='string' && v.length>=3){ freq[k]=(freq[k]||0)+(/[\u0400-\u04FF]/.test(v)?2:1); if(/name/i.test(k)) freq[k]+=2; if(/subj|region|обла|край|респ|город/i.test(k)) freq[k]+=1; } } } const arr=Object.entries(freq).sort((a,b)=>b[1]-a[1]); return arr.length?arr[0][0]:null; })();
   function getName(i){ const p=features[i].properties||{}; return (nameKey&&p[nameKey])?String(p[nameKey]):`Субъект РФ №${i+1}`; }
@@ -263,17 +269,16 @@
   }
   function applySpawn(i){
     const off = spawnOffsetsFor(i);
-    const p = pieces[i];
-    p.dx = off.dx; p.dy = off.dy;
+    const p = pieces[i]; p.dx = off.dx; p.dy = off.dy;
   }
   function setCurrent(i){
     current = i;
-    applySpawn(i);            // СРАЗУ кладём в стартовую полосу (без кадра «на карте»)
+    applySpawn(i);            // всегда кладём в центр стартовой полосы
     buildPick();
     drawAll(false);
   }
 
-  // ===== Рендер =====
+  // ===== Рендер (с клиппингом незакреплённой детали в стартовой полосе) =====
   function drawMapSilhouette(){
     ctx.save(); setScene(ctx);
     for(const path of paths){ ctx.fillStyle='#152b55'; ctx.fill(path); }
@@ -282,8 +287,8 @@
     ctx.restore();
   }
   function drawPieces(){
+    // закреплённые — фоном
     ctx.save(); setScene(ctx);
-    // 1) всё закреплённое — фоном
     for(const p of pieces){
       if(!p.locked) continue;
       ctx.save(); ctx.translate(p.dx,p.dy);
@@ -291,15 +296,31 @@
       ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]);
       ctx.restore();
     }
-    // 2) текущая незакреплённая — поверх, ярко-красная
+    ctx.restore();
+
+    // текущая незакреплённая — поверх; если её якорь в стартовой полосе, клиппим полосой
     const pc = pieces[current];
     if(!pc.locked){
-      ctx.save(); ctx.translate(pc.dx,pc.dy);
-      ctx.fillStyle='#FF3B30'; ctx.globalAlpha=0.98; ctx.strokeStyle='#680000'; ctx.lineWidth=Math.max(0.9/view.k,0.6);
+      const sr = spawnRect();
+      const {sx,sy} = screenAnchor(pc.i, pc);
+      const insideSpawn = (sx>=sr.x && sx<=sr.x+sr.w && sy>=sr.y && sy<=sr.y+sr.h);
+
+      ctx.save();
+      if(insideSpawn){
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        ctx.beginPath(); ctx.rect(sr.x, sr.y, sr.w, sr.h); ctx.clip();
+        setScene(ctx);
+      }else{
+        setScene(ctx);
+      }
+
+      ctx.translate(pc.dx,pc.dy);
+      ctx.fillStyle='#FF3B30';           // ярко-красный для незакреплённой
+      ctx.globalAlpha=0.98;
+      ctx.strokeStyle='#680000'; ctx.lineWidth=Math.max(0.9/view.k,0.6);
       ctx.fill(paths[pc.i]); ctx.stroke(paths[pc.i]);
       ctx.restore();
     }
-    ctx.restore();
   }
   function drawSpawnOverlay(){
     const sr = spawnRect();
@@ -315,13 +336,28 @@
     ctx.restore();
   }
   function buildPick(){
-    pick.save(); pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
+    pick.save();
+    pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
     pick.clearRect(0,0,cv.width,cv.height);
+
     const p = pieces[current];
-    pick.save(); pick.translate(p.dx,p.dy);
-    pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
-    pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
-    pick.restore(); pick.restore();
+    if(!p.locked){
+      const sr = spawnRect();
+      const {sx,sy} = screenAnchor(p.i, p);
+      const insideSpawn = (sx>=sr.x && sx<=sr.x+sr.w && sy>=sr.y && sy<=sr.y+sr.h);
+
+      if(insideSpawn){
+        pick.setTransform(dpr,0,0,dpr,0,0);
+        pick.beginPath(); pick.rect(sr.x, sr.y, sr.w, sr.h); pick.clip();
+        pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
+      }
+
+      pick.save(); pick.translate(p.dx,p.dy);
+      pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
+      pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
+      pick.restore();
+    }
+    pick.restore();
   }
   function drawAll(rebuild=false){
     ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -338,52 +374,90 @@
   function snapRadiusBy(diff){ return diff==='easy'?60:(diff==='medium'?30:12); }
   difEl.addEventListener('change',()=>{ if(difficultyLocked){ alert('Сложность нельзя менять после установки первой детали. Нажмите «Сбросить» для новой игры.'); } });
 
-  // ===== Управление: drag/pan/zoom =====
+  // ===== Управление: drag/pan/zoom + пинч-зум =====
   let draggingPiece=false, draggingPan=false, dragOff={x:0,y:0}, panOff={x:0,y:0};
+  const pointers=new Map(); let pinch=null;
+
   function pickAt(x,y){
     const px=Math.max(0,Math.min(cv.width-1,Math.round(x*dpr)));
     const py=Math.max(0,Math.min(cv.height-1,Math.round(y*dpr)));
     const d=pick.getImageData(px,py,1,1).data; return d[3]>0;
   }
   function inSpawnZone(x,y){ const sr=spawnRect(); return x>=sr.x && x<=sr.x+sr.w && y>=sr.y && y<=sr.y+sr.h; }
+  function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+
+  function startPinch(){
+    const pts=[...pointers.values()]; if(pts.length<2) return;
+    const a=pts[0], b=pts[1];
+    const cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+    pinch = {
+      cx, cy, d0: dist(a,b),
+      k0: view.k, x0:view.x, y0:view.y,
+      world: screenToWorld(cx,cy)
+    };
+  }
+  function updatePinch(){
+    if(!pinch) return;
+    const pts=[...pointers.values()]; if(pts.length<2) return;
+    const a=pts[0], b=pts[1];
+    const d1=dist(a,b); if(d1<=0) return;
+    const factor=d1/pinch.d0;
+    const k=Math.max(viewMin, Math.min(viewMax, pinch.k0*factor));
+    const w=pinch.world;
+    view.k=k;
+    view.x = pinch.cx - w.x*k;
+    view.y = pinch.cy - w.y*k;
+    drawAll(true);
+  }
 
   cv.addEventListener('pointerdown', e=>{
     cv.setPointerCapture(e.pointerId);
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    pointers.set(e.pointerId,{x,y});
+    if(pointers.size===2){
+      // если тащили деталь — прекращаем, переходим в пинч
+      draggingPiece=false; draggingPan=false;
+      startPinch(); drawAll(true); return;
+    }
+    // одиночный указатель
     const onPiece = pickAt(x,y) || inSpawnZone(x,y);
     if(onPiece){
-      // при клике в полосе гарантируем «возврат» в центр и сразу тащим
+      // если кликнули в полосе — возвращаем в центр и тянем
       if(inSpawnZone(x,y)){ applySpawn(current); buildPick(); drawAll(false); }
       draggingPiece=true;
       const s=screenToWorld(x,y);
-      const [ax,ay]=anchors[current];
-      const p=pieces[current];
+      const [ax,ay]=anchors[current]; const p=pieces[current];
       dragOff={x: s.x-(ax+p.dx), y: s.y-(ay+p.dy)};
     }else{
       draggingPan=true; panOff={x:x - view.x, y:y - view.y};
     }
   });
+
   cv.addEventListener('pointermove', e=>{
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    if(pointers.has(e.pointerId)){ pointers.set(e.pointerId,{x,y}); }
+    if(pointers.size>=2){ updatePinch(); return; }
     if(draggingPiece){
       const s=screenToWorld(x,y);
-      const [ax,ay]=anchors[current];
-      const p=pieces[current];
-      p.dx=(s.x - dragOff.x) - ax;
-      p.dy=(s.y - dragOff.y) - ay;
+      const [ax,ay]=anchors[current]; const p=pieces[current];
+      p.dx=(s.x - dragOff.x) - ax; p.dy=(s.y - dragOff.y) - ay;
       drawAll(false);
     }else if(draggingPan){
       view.x = x - panOff.x; view.y = y - panOff.y;
       drawAll(true);
     }
   });
-  cv.addEventListener('pointerup', e=>{
+
+  function finishDragAndPinch(e){
+    if(pointers.has(e.pointerId)) pointers.delete(e.pointerId);
+    if(pointers.size<2) pinch=null;
+
     if(draggingPiece){
       const p=pieces[current];
       const remaining = TOTAL - placed; // до фиксации текущей
-      const dist=Math.hypot(p.dx,p.dy);
+      const distSnap=Math.hypot(p.dx,p.dy);
       const mustAutoSnap = (remaining === 1);      // последняя деталь
-      if(mustAutoSnap || dist < snapRadiusBy(difEl.value)){
+      if(mustAutoSnap || distSnap < snapRadiusBy(difEl.value)){
         p.dx=0; p.dy=0;
         if(!p.locked){
           p.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`;
@@ -401,7 +475,10 @@
     }
     draggingPiece=false; draggingPan=false;
     try{cv.releasePointerCapture(e.pointerId);}catch{}
-  });
+  }
+
+  cv.addEventListener('pointerup', finishDragAndPinch);
+  cv.addEventListener('pointercancel', finishDragAndPinch);
   cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const k=(e.deltaY<0)?1.15:(1/1.15); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
 
   function zoomAt(factor, cx, cy){
@@ -413,7 +490,7 @@
   zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
 
   // ===== Кнопки =====
-  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижней пунктирной полосы на карту.\n• Масштаб/перемещение доступны всегда: колесо/щипок и перетаскивание фона.\n• Как только ставите первую деталь, сложность фиксируется до «Сбросить».\n• «Вернуть деталь» — помещает текущую незакреплённую деталь в стартовую полосу.\n• «Центрировать карту» — исходный вид.');
+  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижней пунктирной полосы на карту.\n• Масштаб/перемещение: колесо мыши, один палец — панорамирование, два пальца — пинч-зум.\n• После установки первой детали сложность фиксируется до «Сбросить».\n• «Вернуть деталь» — помещает текущую незакреплённую деталь в стартовую полосу.\n• «Центрировать карту» — исходный вид.');
 
   returnBtn.onclick = ()=>{ const p=pieces[current]; if(!p.locked){ applySpawn(current); buildPick(); drawAll(true); } };
   centerBtn.onclick  = ()=>{ fitView(); applySpawn(current); buildPick(); drawAll(true); };
@@ -437,7 +514,7 @@
     const byFio = new Map();
     for(const r of all){
       if(diff!=='all' && r.difficulty!==diff) continue;
-      if(gflt && (!r.group || String(r.group).toLowerCase().includes(gflt)===false)) continue;
+      if(gflt && (!r.group || !String(r.group).toLowerCase().includes(gflt))) continue;
       const key = (r.fio||'').trim() || '(без ФИО)';
       const prev = byFio.get(key);
       if(!prev || (r.time_ms||1e12) < (prev.time_ms||1e12)) byFio.set(key, r);
