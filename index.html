@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <title>Собери карту России — Canvas-пазл (89 регионов) с диагностикой</title>
   <style>
-    :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; --accent:#58e0b9; --line:#27345a; --ok:#34d399; --warn:#fbbf24; --err:#ef4444 }
+    :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; --ok:#34d399; --warn:#fbbf24; --err:#ef4444 }
     html,body{height:100%;margin:0;background:var(--bg);color:#e7eeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
     *{ box-sizing:border-box; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent }
     .wrap{ max-width:1200px; margin:0 auto; padding:10px }
@@ -15,7 +15,7 @@
     .pill{ display:inline-flex; align-items:center; gap:6px; background:#0f1733; border:1px solid #223062; border-radius:999px; padding:6px 10px; font-size:12px; color:#cfe0ff }
     .btn{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 12px; border-radius:10px; cursor:pointer }
     canvas{ width:100%; height:68vh; min-height:460px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
-    .muted{ color:var(--muted) } .small{ font-size:12px }
+    .small{ font-size:12px } .muted{ color:#a9b7d6 }
     .log{ font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0e1430; border:1px solid #23305b; border-radius:8px; padding:8px; max-height:220px; overflow:auto; white-space:pre-wrap }
     .ok{ color:var(--ok) } .warn{ color:var(--warn) } .err{ color:var(--err) }
   </style>
@@ -29,17 +29,17 @@
       <span class="pill">Время: <b id="time">00:00</b></span>
       <span class="pill">Снап: <b id="snap">20 px</b></span>
       <button id="reset" class="btn">Сбросить</button>
-      <button id="shuffle" class="btn">Перетасовать детали</button>
+      <button id="shuffle" class="btn">Перетасовать</button>
       <button id="help" class="btn">Подсказки</button>
     </div>
-    <p class="muted small">Файл <code>Russian_regions_TopoJSON.topojson</code> должен лежать рядом с этой страницей. Если карта не грузится — смотрите «Диагностику» ниже.</p>
+    <p class="muted small">Файл <code>Russian_regions_TopoJSON.topojson</code> должен лежать рядом с этой страницей. Если карта не грузится — используйте «Диагностику» справа.</p>
   </div>
 
-  <div class="grid" style="display:grid;grid-template-columns:1fr .45fr;gap:10px;margin-top:10px">
+  <div style="display:grid;grid-template-columns:1fr .45fr;gap:10px;margin-top:10px">
     <div class="card">
       <canvas id="cv" width="1000" height="640"></canvas>
       <div class="row muted small" style="margin-top:6px; justify-content:space-between">
-        <span>Перетаскивайте регионы. При попадании в радиус «снапа» деталь «прилипает».</span>
+        <span>Перетаскивайте регионы. При попадании в радиус снапа деталь «прилипает».</span>
         <span id="status" class="pill">Загрузка карты…</span>
       </div>
     </div>
@@ -55,12 +55,11 @@
 <script>
 (async function(){
   const TOPO_NAME = 'Russian_regions_TopoJSON.topojson';
-  const TOPO_URL = TOPO_NAME + '?v=' + Date.now(); // anti-cache
-  const TOTAL = 89;
-  const SNAP = 20;
+  const TOPO_URL = TOPO_NAME + '?v=' + Date.now(); // анти-кэш
+  const TOTAL = 89, SNAP = 20;
 
-  const canvas = document.getElementById('cv');
-  const ctx = canvas.getContext('2d');
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
   const pick = document.createElement('canvas').getContext('2d');
   const placedEl = document.getElementById('placed');
   const timeEl = document.getElementById('time');
@@ -68,260 +67,228 @@
   const statusEl = document.getElementById('status');
   const logEl = document.getElementById('diag');
 
-  function log(msg, cls){ const s = document.createElement('div'); if(cls) s.className = cls; s.textContent = msg; logEl.appendChild(s); logEl.scrollTop = logEl.scrollHeight; }
+  function log(msg, cls){ const d=document.createElement('div'); if(cls) d.className=cls; d.textContent=msg; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
 
   snapEl.textContent = SNAP + ' px';
 
+  // === DPI-адаптация (важно для правильной отрисовки и «пика»)
+  let dpr = 1;
   function fitCanvas(){
-    const r = canvas.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(r.width * dpr);
-    canvas.height = Math.round((r.height||480) * dpr);
+    const r = cv.getBoundingClientRect();
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(r.width * dpr);
+    cv.height = Math.round((r.height||480) * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    pick.canvas.width = canvas.width;
-    pick.canvas.height = canvas.height;
-    pick.setTransform(dpr,0,0,dpr,0,0);
+
+    pick.canvas.width = cv.width;
+    pick.canvas.height = cv.height;
+    pick.setTransform(dpr,0,0,dpr,0,0);    // ← синхронизация с основным холстом
   }
   fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); drawAll(true); });
 
-  // HEAD может быть запрещён некоторыми хостингами — поэтому пробуем, но не делаем из этого «фатальную» ошибку.
+  // === Проверка доступности и загрузка карты
   try{
     const head = await fetch(TOPO_URL, { method:'HEAD', cache:'no-store' });
     if(head.ok) log(`HEAD ${TOPO_NAME}: OK (HTTP ${head.status})`, 'ok');
-    else log(`HEAD ${TOPO_NAME}: HTTP ${head.status} — возможно, этот метод не разрешён, продолжим с GET`, 'warn');
-  }catch(e){
-    log(`HEAD ${TOPO_NAME}: исключение (не критично): ${e}`, 'warn');
-  }
+    else log(`HEAD ${TOPO_NAME}: HTTP ${head.status} — продолжим с GET`, 'warn');
+  }catch(e){ log(`HEAD ${TOPO_NAME}: исключение (некритично): ${e}`, 'warn'); }
 
-  // Загружаем JSON
   let topo;
   try{
     const res = await fetch(TOPO_URL, { cache:'no-store' });
-    if(!res.ok){ log(`GET ${TOPO_NAME}: HTTP ${res.status}`, 'err'); statusEl.textContent = 'Карта не найдена'; statusEl.classList.add('err'); return; }
+    if(!res.ok){ log(`GET ${TOPO_NAME}: HTTP ${res.status}`, 'err'); statusEl.textContent='Карта не найдена'; statusEl.classList.add('err'); return; }
     const text = await res.text();
-    try { topo = JSON.parse(text); }
-    catch(e){ log('JSON.parse: ошибка — это точно TopoJSON?', 'err'); statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return; }
+    topo = JSON.parse(text);
   }catch(e){
-    log(`GET ${TOPO_NAME}: исключение ${e}`, 'err'); statusEl.textContent = 'Сетевая ошибка'; statusEl.classList.add('err'); return;
+    log('Ошибка чтения/парсинга TopoJSON: '+e, 'err');
+    statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return;
   }
 
-  if(!topo || topo.type !== 'Topology'){ log('В файле нет type: "Topology" — это не TopoJSON', 'err'); statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return; }
-  if(!topo.objects){ log('В файле нет topo.objects — структура неожиданна', 'err'); statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return; }
+  if(!topo || topo.type!=='Topology' || !topo.objects){
+    log('Неверная структура TopoJSON (нет type="Topology" или objects)', 'err');
+    statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return;
+  }
 
-  // Выбор объекта с полигонами и числом геометрий около 89 (исправлено: используем TOTAL, а не ${TOTAL})
-  const objects = topo.objects;
-  const keys = Object.keys(objects);
+  // === Выбираем объект с полигонами, близкий к 89
+  const keys = Object.keys(topo.objects);
   log(`Найдено topo.objects: [${keys.join(', ')}]`);
   const scored = keys.map(k=>{
-    const g = objects[k].geometries || [];
+    const g = topo.objects[k].geometries || [];
     const n = g.length|0;
     const hasPoly = g.some(geom => /Polygon/i.test(geom.type||''));
-    const score = (hasPoly?0:1000) + Math.abs(n - TOTAL); // ← фикс
+    const score = (hasPoly?0:1000) + Math.abs(n - TOTAL);
     return {k,n,hasPoly,score};
-  }).sort((a,b)=> a.score - b.score);
+  }).sort((a,b)=>a.score-b.score);
   const chosen = scored[0];
   log(`Выбран объект: ${chosen.k} (геометрий: ${chosen.n}, полигоны: ${chosen.hasPoly?'да':'нет'})`, 'ok');
 
   let geo;
-  try{
-    geo = topojson.feature(topo, objects[chosen.k]);
-  }catch(e){
-    log(`topojson.feature: ${e}`, 'err'); statusEl.textContent = 'Ошибка разборки TopoJSON'; statusEl.classList.add('err'); return;
-  }
+  try{ geo = topojson.feature(topo, topo.objects[chosen.k]); }
+  catch(e){ log('topojson.feature: '+e, 'err'); statusEl.textContent='Ошибка разборки TopoJSON'; statusEl.classList.add('err'); return; }
+
   const features = geo.features;
   log(`features: ${features.length} (ожидаем ~89)`);
 
+  // === Проекция + смещение
   let projection = d3.geoMercator();
-  let _offsetMap = {x:8,y:8};
+  let _offset = {x:8,y:8};
   function fitProjection(){
-    const w = canvas.width / (window.devicePixelRatio||1);
-    const h = canvas.height / (window.devicePixelRatio||1);
-    const mapW = Math.max(480, w*0.58);
-    const mapH = h - 20;
+    const w = cv.width / dpr, h = cv.height / dpr;
+    const mapW = Math.max(480, w*0.58), mapH = h - 20;
     projection = d3.geoMercator();
     projection.fitSize([mapW, mapH], geo);
-    _offsetMap = {x:8, y:8};
+    _offset = {x:8,y:8};
   }
   fitProjection(); window.addEventListener('resize', ()=>{ fitProjection(); });
 
-  function buildPath2D(feature){
+  // === Построение контуров
+  function buildPath2D(f){
     const p = new Path2D();
-    const geom = feature.geometry || {};
-    const polys = geom.type === 'Polygon' ? [geom.coordinates||[]] : (geom.coordinates||[]);
+    const geom = f.geometry||{};
+    const polys = geom.type==='Polygon' ? [geom.coordinates||[]] : (geom.coordinates||[]);
     polys.forEach(rings=>{
       (rings||[]).forEach(ring=>{
-        let prev = null;
-        (ring||[]).forEach((lnglat, idx)=>{
-          const pt = projection(lnglat);
-          if(!pt) return;
-          const x = pt[0] + _offsetMap.x, y = pt[1] + _offsetMap.y;
+        let prev=null;
+        (ring||[]).forEach((lnglat,idx)=>{
+          const pt = projection(lnglat); if(!pt) return;
+          const x = pt[0]+_offset.x, y = pt[1]+_offset.y;
           if(idx===0){ p.moveTo(x,y); prev=[x,y]; }
-          else if(!prev || Math.hypot(x - prev[0], y - prev[1]) > 0.8){ p.lineTo(x,y); prev=[x,y]; }
+          else if(!prev || Math.hypot(x-prev[0], y-prev[1])>0.8){ p.lineTo(x,y); prev=[x,y]; }
         });
         p.closePath();
       });
     });
     return p;
   }
-
   const paths = features.map(buildPath2D);
 
-  function centroidScreen(f){
-    const gp = d3.geoPath(projection);
-    const c = gp.centroid(f);
-    return [c[0] + _offsetMap.x, c[1] + _offsetMap.y];
-  }
-  const targets = features.map(centroidScreen);
+  // Центроиды целей (в экранных координатах)
+  const gp = d3.geoPath(projection);
+  const targets = features.map(f=>{ const c=gp.centroid(f); return [c[0]+_offset.x, c[1]+_offset.y]; });
 
-  const pieces = features.map((f,i)=>({ i, dx:0, dy:0, locked:false }));
+  // Состояние деталей
+  const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false }));
 
+  // Оценка bbox через «пик»-канвас (грубо, но быстро)
   function bboxPath(path){
-    const w = canvas.width / (window.devicePixelRatio||1);
-    const h = canvas.height / (window.devicePixelRatio||1);
-    const step = 4;
-    let minX=1e9, minY=1e9, maxX=-1e9, maxY=-1e9;
+    const w = cv.width / dpr, h = cv.height / dpr, step=4;
     pick.save();
     pick.clearRect(0,0,w,h);
-    pick.beginPath();
-    pick.fillStyle = '#fff';
-    pick.fill(path);
+    pick.beginPath(); pick.fillStyle='#fff'; pick.fill(path);
     const data = pick.getImageData(0,0,w,h).data;
+    let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
     for(let y=0;y<h;y+=step){
       for(let x=0;x<w;x+=step){
-        const idx = ((y|0)*w + (x|0))*4 + 3;
-        if(data[idx] > 0){
-          if(x<minX) minX=x;
-          if(y<minY) minY=y;
-          if(x>maxX) maxX=x;
-          if(y>maxY) maxY=y;
-        }
+        const a = data[((y|0)*w + (x|0))*4 + 3];
+        if(a>0){ if(x<minX)minX=x; if(y<minY)minY=y; if(x>maxX)maxX=x; if(y>maxY)maxY=y; }
       }
     }
     pick.restore();
-    if(minX===1e9){ return {x:0,y:0,w:40,h:20}; }
-    return { x:minX, y:minY, w:(maxX-minX+1), h:(maxY-minY+1) };
+    if(minX===1e9) return {x:0,y:0,w:40,h:20};
+    return {x:minX,y:minY,w:maxX-minX+1,h:maxY-minY+1};
   }
 
   function spawnPieces(){
-    const w = canvas.width / (window.devicePixelRatio||1);
-    const h = canvas.height / (window.devicePixelRatio||1);
+    const w = cv.width / dpr, h = cv.height / dpr;
     pieces.forEach(p=>{
       const bb = bboxPath(paths[p.i]);
-      const trayX = w*0.60 + Math.random() * Math.max(20, (w*0.36 - (bb.w+20)));
-      const trayY = 16 + Math.random() * Math.max(20, (h - (bb.h+32)));
-      p.dx = trayX - bb.x;
-      p.dy = trayY - bb.y;
-      p.locked = false;
+      const trayX = w*0.60 + Math.random()*Math.max(20,(w*0.36-(bb.w+20)));
+      const trayY = 16 + Math.random()*Math.max(20,(h-(bb.h+32)));
+      p.dx = trayX - bb.x; p.dy = trayY - bb.y; p.locked=false;
     });
   }
   spawnPieces();
 
+  // === Рендер «мишени» и деталей
   function drawTarget(){
     ctx.save();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#25407a';
-    for(let i=0;i<paths.length;i++) ctx.stroke(paths[i]);
+    for(let i=0;i<paths.length;i++){
+      // лёгкая заливка цели, чтобы карту было отчётливо видно
+      ctx.fillStyle = '#10224a'; ctx.globalAlpha = 0.18; ctx.fill(paths[i]);
+      ctx.globalAlpha = 1; ctx.strokeStyle = '#25407a'; ctx.lineWidth = 1; ctx.stroke(paths[i]);
+    }
     ctx.restore();
   }
   function drawPieces(){
     for(const p of pieces){
-      const path = paths[p.i];
-      ctx.save();
-      ctx.translate(p.dx, p.dy);
-      ctx.lineWidth = 0.8;
-      ctx.strokeStyle = '#0a2a4f';
+      ctx.save(); ctx.translate(p.dx,p.dy);
       ctx.fillStyle = p.locked ? '#37cc91' : '#7cb8ff';
-      ctx.globalAlpha = p.locked ? 0.95 : 0.88;
-      ctx.fill(path); ctx.stroke(path);
+      ctx.globalAlpha = p.locked ? 0.95 : 0.9;
+      ctx.strokeStyle = '#0a2a4f'; ctx.lineWidth = 0.8;
+      ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]);
       ctx.restore();
     }
   }
+
   function id2color(id){ const r=(id&255), g=(id>>8)&255; return `rgb(${r},${g},1)`; }
   function color2id(r,g,b){ return r + (g<<8); }
   function orderedPieces(){
-    const arr = pieces.slice();
-    arr.sort((a,b)=>{ if(a===dragging) return 1; if(b===dragging) return -1; return (a.locked===b.locked)? 0 : (a.locked? -1 : 1); });
-    return arr;
+    const a = pieces.slice();
+    a.sort((x,y)=>{ if(x===drag) return 1; if(y===drag) return -1; return (x.locked===y.locked)?0:(x.locked?-1:1); });
+    return a;
   }
   function buildPick(){
-    const w = canvas.width / (window.devicePixelRatio||1);
-    const h = canvas.height / (window.devicePixelRatio||1);
-    pick.save();
-    pick.clearRect(0,0,w,h);
+    const w=cv.width/dpr,h=cv.height/dpr;
+    pick.save(); pick.clearRect(0,0,w,h);
+    // важное: учитываем dpr-трансформацию, она уже выставлена в fitCanvas()
     for(const p of orderedPieces()){
-      const color = id2color(p.i);
-      pick.fillStyle = color; pick.strokeStyle = color;
-      pick.translate(p.dx, p.dy);
+      pick.save(); pick.translate(p.dx,p.dy);
+      pick.fillStyle=id2color(p.i); pick.strokeStyle=pick.fillStyle;
       pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
-      pick.setTransform(1,0,0,1,0,0);
+      pick.restore();
     }
     pick.restore();
   }
-  function drawAll(rebuildPick=false){
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+  function drawAll(rebuild=false){
+    ctx.clearRect(0,0,cv.width,cv.height);
     drawTarget(); drawPieces();
-    if(rebuildPick) buildPick();
+    if(rebuild) buildPick();
   }
 
-  let startAt = null, finished = false, placed = 0;
-  function fmt(ms){ const s = Math.floor(ms/1000); const m=Math.floor(s/60), ss=(s%60).toString().padStart(2,'0'); return `${m.toString().padStart(2,'0')}:${ss}` }
-  function tick(){ if(!finished && startAt){ timeEl.textContent = fmt(performance.now()-startAt); } requestAnimationFrame(tick); }
-  tick();
+  // Таймер и логика перетаскивания
+  let startAt=null, finished=false, placed=0;
+  const fmt=ms=>{ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; };
+  (function tick(){ if(!finished && startAt){ timeEl.textContent=fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
 
-  let dragging = null; let dragOff = {x:0,y:0};
+  let drag=null, off={x:0,y:0};
   function pickAt(x,y){
-    const dpr = window.devicePixelRatio||1;
-    const px = Math.round(x*dpr), py = Math.round(y*dpr);
-    const img = pick.getImageData(px,py,1,1).data;
-    if(img[3]===0) return null;
-    const id = color2id(img[0], img[1], img[2]);
-    return pieces.find(p=>p.i===id);
+    const px=Math.round(x*dpr), py=Math.round(y*dpr);
+    const d = pick.getImageData(px,py,1,1).data; if(d[3]===0) return null;
+    const id = color2id(d[0],d[1],d[2]); return pieces.find(p=>p.i===id);
   }
-  function onDown(ev){
-    const rect = canvas.getBoundingClientRect();
-    const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
-    const p = pickAt(x,y); if(!p || p.locked) return;
-    dragging = p;
-    const [cx,cy] = targets[p.i];
-    dragOff.x = x - (cx + p.dx); dragOff.y = y - (cy + p.dy);
+  function onDown(e){
+    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    const p=pickAt(x,y); if(!p||p.locked) return;
+    drag=p; const [cx,cy]=targets[p.i]; off.x=x-(cx+p.dx); off.y=y-(cy+p.dy);
   }
-  function onMove(ev){
-    if(!dragging) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
-    const [cx,cy] = targets[dragging.i];
-    dragging.dx = (x - dragOff.x) - cx; dragging.dy = (y - dragOff.y) - cy;
-    drawAll(false);
+  function onMove(e){
+    if(!drag) return;
+    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    const [cx,cy]=targets[drag.i]; drag.dx=(x-off.x)-cx; drag.dy=(y-off.y)-cy; drawAll(false);
   }
-  function onUp(ev){
-    if(!dragging) return;
-    const [cx,cy] = targets[dragging.i];
-    const rect = canvas.getBoundingClientRect();
-    const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
-    const dist = Math.hypot((cx + dragging.dx) - x + dragOff.x, (cy + dragging.dy) - y + dragOff.y);
-    if(dist < SNAP){
-      dragging.dx = 0; dragging.dy = 0;
-      if(!dragging.locked){
-        dragging.locked = true; placed++; placedEl.textContent = `${placed} / ${TOTAL}`;
-        if(placed===1 && !startAt) startAt = performance.now();
-        if(placed>=TOTAL && !finished){
-          finished = true; statusEl.textContent = 'Готово! ' + timeEl.textContent; statusEl.classList.add('ok');
-        }
-      }
+  function onUp(e){
+    if(!drag) return;
+    const [cx,cy]=targets[drag.i];
+    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    const dist=Math.hypot((cx+drag.dx)-x+off.x,(cy+drag.dy)-y+off.y);
+    if(dist<SNAP){
+      drag.dx=0; drag.dy=0;
+      if(!drag.locked){ drag.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`; if(placed===1&&!startAt) startAt=performance.now(); if(placed>=TOTAL&&!finished){ finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.classList.add('ok'); } }
     }
-    dragging = null; drawAll(true);
+    drag=null; drawAll(true);
   }
-  canvas.addEventListener('pointerdown', (e)=>{ canvas.setPointerCapture(e.pointerId); onDown(e); });
-  canvas.addEventListener('pointermove', onMove);
-  canvas.addEventListener('pointerup', (e)=>{ onUp(e); try{canvas.releasePointerCapture(e.pointerId);}catch{} });
-  canvas.addEventListener('pointercancel', ()=>{ dragging=null; });
+  cv.addEventListener('pointerdown', e=>{ cv.setPointerCapture(e.pointerId); onDown(e); });
+  cv.addEventListener('pointermove', onMove);
+  cv.addEventListener('pointerup',   e=>{ onUp(e); try{cv.releasePointerCapture(e.pointerId);}catch{} });
+  cv.addEventListener('pointercancel', ()=>{ drag=null; });
 
-  document.getElementById('reset').onclick = ()=>{ placed=0; placedEl.textContent = `0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent = '00:00'; pieces.forEach(p=>{ p.locked=false; p.dx=0; p.dy=0; }); spawnPieces(); drawAll(true); };
+  // Кнопки
+  document.getElementById('reset').onclick = ()=>{ placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00'; pieces.forEach(p=>{ p.locked=false; p.dx=0; p.dy=0; }); spawnPieces(); drawAll(true); };
   document.getElementById('shuffle').onclick = ()=>{ spawnPieces(); drawAll(true); };
-  document.getElementById('help').onclick = ()=>{ alert('Цель: перетащить все субъекты РФ на карту. При попадании в радиус ' + SNAP + ' пикселей деталь «прилипает». Таймер стартует при установке первой детали.'); };
+  document.getElementById('help').onclick = ()=>{ alert('Цель: перетащить все субъекты РФ на карту. При попадании в радиус '+SNAP+' пикселей деталь «прилипает». Таймер стартует при установке первой детали.'); };
 
-  statusEl.textContent = 'Карта загружена'; statusEl.classList.add('ok');
-  log('Готово к игре', 'ok');
+  statusEl.textContent='Карта загружена'; statusEl.classList.add('ok');
+  log('Готово к игре','ok');
   drawAll(true);
 })();
 </script>
