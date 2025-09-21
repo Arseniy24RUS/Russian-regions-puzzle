@@ -17,11 +17,8 @@
   .input{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 10px; border-radius:10px }
   select.input{ padding-right:28px }
   .muted{ color:var(--muted) } .small{ font-size:12px }
-  .grid{ display:grid; grid-template-columns:1.4fr .6fr; gap:10px }
-  @media (max-width: 980px){ .grid{ grid-template-columns:1fr } }
-  .board{ display:grid; grid-template-columns:1fr; gap:10px }
-  canvas#cv{ width:100%; height:70vh; min-height:520px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
-  .tray{ background:#0a1127; border:1px dashed #2a3e73; border-radius:12px; padding:10px }
+  .grid{ display:grid; grid-template-columns:1fr; gap:10px } /* одна колонка: карта, затем лидеры */
+  canvas#cv{ width:100%; height:72vh; min-height:520px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
   .table{ width:100%; border-collapse:collapse; font-size:13px }
   .table th,.table td{ border-bottom:1px solid #1d2745; padding:6px 8px; text-align:left }
   .footer{ margin-top:12px; font-size:12px; color:#a9b7d6; text-align:center }
@@ -54,45 +51,30 @@
     </div>
   </div>
 
-  <div class="grid" style="margin-top:10px">
-    <div class="board">
-      <div class="card">
-        <canvas id="cv" width="1000" height="680"></canvas>
-        <span id="status" class="pill" style="margin-top:6px; display:inline-block">Загрузка карты…</span>
-      </div>
+  <div class="grid">
+    <div class="card">
+      <canvas id="cv" width="1000" height="680"></canvas>
+      <span id="status" class="pill" style="margin-top:6px; display:inline-block">Загрузка карты…</span>
     </div>
 
-    <div class="board">
-      <div class="card tray">
-        <div class="row" style="justify-content:space-between;align-items:flex-end">
-          <div>
-            <div class="small muted">Текущий субъект РФ:</div>
-            <div id="currentName" style="font-weight:700; margin-top:2px">—</div>
-          </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div style="font-weight:600">Таблица лидеров</div>
+        <div class="row">
+          <select id="lbDifficulty" class="input">
+            <option value="all">Все сложности</option>
+            <option value="easy">Лёгкая</option>
+            <option value="medium">Средняя</option>
+            <option value="hard">Сложная</option>
+          </select>
+          <input id="lbGroupFilter" class="input" placeholder="Фильтр по группе" style="width:140px">
+          <button id="exportCSV" class="btn">Скачать CSV</button>
         </div>
-        <canvas id="tray" width="360" height="220" style="margin-top:10px; width:100%; height:220px; background:#0b132b; border:1px solid #1b2953; border-radius:10px"></canvas>
-        <div class="small muted" style="margin-top:6px">Совет: можно начать перетаскивание прямо из «лотка». Деталь появляется в стартовой зоне у правого края карты и «цепляется» за палец/курсор.</div>
       </div>
-
-      <div class="card">
-        <div class="row" style="justify-content:space-between">
-          <div style="font-weight:600">Таблица лидеров</div>
-          <div class="row">
-            <select id="lbDifficulty" class="input">
-              <option value="all">Все сложности</option>
-              <option value="easy">Лёгкая</option>
-              <option value="medium">Средняя</option>
-              <option value="hard">Сложная</option>
-            </select>
-            <input id="lbGroupFilter" class="input" placeholder="Фильтр по группе" style="width:140px">
-            <button id="exportCSV" class="btn">Скачать CSV</button>
-          </div>
-        </div>
-        <table class="table" id="leaderboard" style="margin-top:8px">
-          <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Сложность</th><th>Время</th><th>Дата</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
+      <table class="table" id="leaderboard" style="margin-top:8px">
+        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Сложность</th><th>Время</th><th>Дата</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
   </div>
 
@@ -125,12 +107,10 @@
   // ===== UI refs =====
   const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
   const pick = document.createElement('canvas').getContext('2d');
-  const trayCv = document.getElementById('tray'); const trayCtx = trayCv.getContext('2d');
 
   const statusEl = document.getElementById('status');
   const placedEl = document.getElementById('placed');
   const timeEl = document.getElementById('time');
-  const currentNameEl = document.getElementById('currentName');
 
   const fioEl = document.getElementById('fio');
   const groupEl = document.getElementById('group');
@@ -145,7 +125,7 @@
   const zoomInBtn = document.getElementById('zoomIn');
   const zoomOutBtn = document.getElementById('zoomOut');
 
-  // ===== DPI =====
+  // ===== DPI / Canvas =====
   let dpr = 1;
   function fitCanvas(){
     const r = cv.getBoundingClientRect();
@@ -156,14 +136,9 @@
     ctx.setTransform(dpr,0,0,dpr,0,0);
     pick.canvas.width = w; pick.canvas.height = h;
     pick.setTransform(dpr,0,0,dpr,0,0);
-
-    const tr = trayCv.getBoundingClientRect();
-    trayCv.width = Math.max(1, Math.floor(tr.width * dpr));
-    trayCv.height= Math.max(1, Math.floor(tr.height* dpr));
-    trayCtx.setTransform(dpr,0,0,dpr,0,0);
   }
   fitCanvas();
-  window.addEventListener('resize', ()=>{ fitCanvas(); fitProjection(); rebuildGeometry(); fitView(); drawTray(); drawAll(true); });
+  window.addEventListener('resize', ()=>{ fitCanvas(); fitProjection(); rebuildGeometry(); fitView(); drawAll(true); });
 
   // ===== Load TopoJSON =====
   const TOPO = 'Russian_regions_TopoJSON.topojson';
@@ -221,7 +196,8 @@
     targets = features.map(f=>{ const c=gp.centroid(f); return [c[0]+_pad, c[1]+_pad]; });
   }
 
-  // ===== Авто-вписывание во всё поле (fitView) =====
+  // ===== Авто-вписывание во всё поле с учётом стартовой полосы =====
+  const SPAWN = { height: 118, margin: 8, pad: 8 }; // полоса внизу
   let view = { k: 1, x: 0, y: 0 };           // экранные координаты (CSS px)
   const viewMin = 0.8, viewMax = 3.5;
 
@@ -246,19 +222,23 @@
     const W = r.width, H = r.height;
     const b = worldBounds();
     const w = Math.max(1, b.maxX - b.minX), h = Math.max(1, b.maxY - b.minY);
-    const pad = 8; // визуальное поле по краям
-    const k = Math.min( (W - 2*pad)/w, (H - 2*pad)/h );
-    const cx = (b.minX + b.maxX)/2, cy = (b.minY + b.maxY)/2;
+    const pad = 8;
+    const mapAreaBottom = H - SPAWN.height - SPAWN.margin; // линия над стартовой зоной
+    const availH = (mapAreaBottom - pad) - (pad);          // высота для РФ
+    const k = Math.min((W - 2*pad)/w, (availH)/h);
     view.k = k;
+    // X — по центру
+    const cx = (b.minX + b.maxX)/2;
     view.x = W/2 - k*cx;
-    view.y = H/2 - k*cy;
+    // Y — «прижимаем» низ РФ к mapAreaBottom - pad
+    view.y = (mapAreaBottom - pad) - k*b.maxY;
   }
   fitView();
 
   function setScene(c){ c.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y); }
   function screenToWorld(x,y){ return { x:(x - view.x)/view.k, y:(y - view.y)/view.k }; }
 
-  // ===== Names =====
+  // ===== Названия =====
   const nameKey = (()=>{
     const freq={};
     for(const f of features){
@@ -276,7 +256,7 @@
   })();
   function subjName(i){ const p=features[i].properties||{}; return (nameKey&&p[nameKey])?String(p[nameKey]):`Субъект РФ №${i+1}`; }
 
-  // ===== Game state =====
+  // ===== Состояние игры =====
   const TOTAL = features.length;
   const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false }));
   let order = d3.shuffle(d3.range(TOTAL));
@@ -285,38 +265,29 @@
   let placed = 0; placedEl.textContent=`0 / ${TOTAL}`;
   let startAt=null, finished=false;
 
-  // ===== Стартовая зона и появление детали =====
-  function spawnPoint(){
+  // ===== Стартовая зона (экранные координаты) =====
+  function spawnRect(){
     const r = cv.getBoundingClientRect();
-    return { x: r.width - 140, y: r.height/2 }; // у правого края, рядом с «лотком»
+    return { x: SPAWN.pad, y: r.height - SPAWN.height - SPAWN.margin, w: r.width - 2*SPAWN.pad, h: SPAWN.height };
   }
-  function showCurrentPiece(attachedToPointer=false, clientX=null, clientY=null){
+  function spawnPoint(){ const sr=spawnRect(); return { x: sr.x + sr.w*0.5, y: sr.y + sr.h*0.5 }; }
+
+  // Всегда спавним текущую деталь в стартовой зоне
+  function showCurrentPiece(){
     const sp = spawnPoint();
     const w = screenToWorld(sp.x, sp.y);
     const [tx,ty] = targets[current];
     const p = pieces[current];
     p.dx = w.x - tx; p.dy = w.y - ty;
-    currentNameEl.textContent = subjName(current);
     drawAll(true);
-    if(attachedToPointer && clientX!=null){
-      beginDragAtClient(clientX, clientY, /*force=*/true);
-    }
   }
 
-  // ===== Rendering =====
-  function drawTarget(){
+  // ===== Отрисовка =====
+  function drawMapSilhouette(){
     ctx.save(); setScene(ctx);
     for(const path of paths){ ctx.fillStyle='#152b55'; ctx.fill(path); }
     ctx.strokeStyle='#25407a'; ctx.lineWidth=Math.max(1/view.k,0.6);
     for(const path of paths){ ctx.stroke(path); }
-    // тонкая рамка стартовой зоны (для наглядности)
-    const sp = spawnPoint(); const sw = 120, sh = 80;
-    const w = screenToWorld(sp.x, sp.y);
-    ctx.save();
-    ctx.translate(w.x - sw/2, w.y - sh/2);
-    ctx.strokeStyle = 'rgba(200,220,255,.25)'; ctx.setLineDash([6,4]); ctx.lineWidth = Math.max(1/view.k,0.6);
-    ctx.strokeRect(0,0,sw,sh);
-    ctx.restore();
     ctx.restore();
   }
   function drawPieces(){
@@ -332,10 +303,26 @@
     }
     ctx.restore();
   }
+  function drawSpawnOverlay(){
+    // рисуем в экранных координатах поверх карты
+    const sr = spawnRect();
+    ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.strokeStyle = 'rgba(200,220,255,.35)';
+    ctx.setLineDash([8,6]); ctx.lineWidth = 1.5;
+    ctx.strokeRect(sr.x, sr.y, sr.w, sr.h);
+    ctx.setLineDash([]);
+    // подпись
+    ctx.fillStyle = '#cfe0ff';
+    ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText('Текущий субъект РФ:', sr.x+10, sr.y+18);
+    ctx.font = 'bold 14px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(subjName(current), sr.x+10, sr.y+38);
+    ctx.restore();
+  }
   function buildPick(){
-    const w=Math.floor(cv.width/dpr), h=Math.floor(cv.height/dpr);
+    const sr = screenToWorld(0,0); // просто триггер на пересчёт transform
     pick.save(); pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
-    pick.clearRect(0,0,w,h);
+    pick.clearRect(0,0,cv.width,cv.height);
     const p = pieces[current];
     pick.save(); pick.translate(p.dx,p.dy);
     pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
@@ -345,7 +332,7 @@
   function drawAll(rebuild=false){
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cv.width,cv.height);
-    drawTarget(); drawPieces();
+    drawMapSilhouette(); drawPieces(); drawSpawnOverlay();
     if(rebuild) buildPick();
   }
 
@@ -365,6 +352,8 @@
     const py=Math.max(0,Math.min(cv.height-1,Math.round(y*dpr)));
     const d=pick.getImageData(px,py,1,1).data; return d[3]>0;
   }
+  function inSpawnZone(x,y){ const sr=spawnRect(); return x>=sr.x && x<=sr.x+sr.w && y>=sr.y && y<=sr.y+sr.h; }
+
   function beginDragAtClient(clientX, clientY, force=false){
     const r=cv.getBoundingClientRect(), x=clientX - r.left, y=clientY - r.top;
     if(panMode) return;
@@ -378,7 +367,7 @@
   function moveDragAtClient(clientX, clientY){
     if(!dragging) return;
     const r=cv.getBoundingClientRect(), x=clientX - r.left, y=clientY - r.top;
-    if(panMode){ return; }
+    if(panMode) return;
     const s=screenToWorld(x,y);
     const [cx,cy]=targets[current];
     const p=pieces[current];
@@ -386,9 +375,8 @@
     p.dy=(s.y - dragOff.y) - cy;
     drawAll(false);
   }
-  function endDragAtClient(clientX, clientY){
-    if(!dragging) return;
-    dragging=false;
+  function endDragAtClient(){
+    if(!dragging) return; dragging=false;
     const p=pieces[current];
     const dist=Math.hypot(p.dx,p.dy);
     if(dist < snapRadiusBy(difEl.value)){
@@ -396,31 +384,27 @@
       if(!p.locked){
         p.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`;
         if(placed===1 && !startAt) startAt=performance.now();
-        if(placed>=TOTAL && !finished){ finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f'; persistResult(); }
-        else { do{ cursor++; }while(cursor<TOTAL && pieces[order[cursor]]?.locked); if(cursor<TOTAL){ current=order[cursor]; showCurrentPiece(false); } }
+        if(placed>=TOTAL && !finished){
+          finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f'; persistResult();
+        }else{
+          do{ cursor++; }while(cursor<TOTAL && pieces[order[cursor]]?.locked);
+          if(cursor<TOTAL){ current=order[cursor]; showCurrentPiece(); }
+        }
       }
     }
     drawAll(true);
   }
 
-  // перетаскивание на основном холсте
-  cv.addEventListener('pointerdown', e=>{ cv.setPointerCapture(e.pointerId); beginDragAtClient(e.clientX,e.clientY); });
-  cv.addEventListener('pointermove', e=>{ moveDragAtClient(e.clientX,e.clientY); });
-  cv.addEventListener('pointerup',   e=>{ endDragAtClient(e.clientX,e.clientY); try{cv.releasePointerCapture(e.pointerId);}catch{} });
-  cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const k=(e.deltaY<0)?1.15:(1/1.15); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
-
-  // перетаскивание из «лотка» (глобальные события)
-  trayCv.addEventListener('pointerdown', e=>{
-    // деталь появляется в стартовой зоне и сразу цепляется к курсору
-    showCurrentPiece(true, e.clientX, e.clientY);
-    window.addEventListener('pointermove', globalMove);
-    window.addEventListener('pointerup', globalUp, {once:true});
+  cv.addEventListener('pointerdown', e=>{
+    cv.setPointerCapture(e.pointerId);
+    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    // начать перетаскивание, даже если кликнули в полосе появления
+    if(inSpawnZone(x,y)) beginDragAtClient(e.clientX, e.clientY, true);
+    else beginDragAtClient(e.clientX, e.clientY, false);
   });
-  function globalMove(e){ moveDragAtClient(e.clientX, e.clientY); }
-  function globalUp(e){
-    endDragAtClient(e.clientX, e.clientY);
-    window.removeEventListener('pointermove', globalMove);
-  }
+  cv.addEventListener('pointermove', e=>{ moveDragAtClient(e.clientX,e.clientY); });
+  cv.addEventListener('pointerup',   e=>{ endDragAtClient(); try{cv.releasePointerCapture(e.pointerId);}catch{} });
+  cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const k=(e.deltaY<0)?1.15:(1/1.15); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
 
   function zoomAt(factor, cx, cy){
     const old=view.k, k=Math.max(viewMin, Math.min(viewMax, old*factor));
@@ -430,34 +414,6 @@
   zoomInBtn.onclick  = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1.2, r.width/2, r.height/2); };
   zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
 
-  // ===== Лоток: мини-превью текущего субъекта РФ =====
-  let trayProj = d3.geoMercator().rotate([-105,0]);
-  function drawTray(){
-    const g = {type:"FeatureCollection",features:[features[current]]};
-    const w = trayCv.width/dpr, h = trayCv.height/dpr;
-    trayProj = d3.geoMercator().rotate([-105,0]).fitSize([w-20,h-20], g);
-    trayCtx.setTransform(1,0,0,1,0,0);
-    trayCtx.clearRect(0,0, trayCv.width, trayCv.height);
-    function pathToTray(f){
-      const p = new Path2D();
-      const geom=f.geometry||{}; const arr=(geom.type==='Polygon')?[geom.coordinates||[]]:(geom.coordinates||[]);
-      arr.forEach(rings=>{
-        (rings||[]).forEach(ring=>{
-          ring.forEach((lnglat,idx)=>{
-            const pt = trayProj(lnglat); if(!pt) return;
-            if(idx===0) p.moveTo(pt[0]+10, pt[1]+10); else p.lineTo(pt[0]+10, pt[1]+10);
-          });
-          p.closePath();
-        });
-      });
-      return p;
-    }
-    const pth = pathToTray(features[current]);
-    trayCtx.fillStyle='#7cb8ff'; trayCtx.globalAlpha=0.95; trayCtx.strokeStyle='#0a2a4f'; trayCtx.lineWidth=1;
-    trayCtx.fill(pth); trayCtx.stroke(pth);
-    currentNameEl.textContent = subjName(current);
-  }
-
   // ===== Профиль, сброс, помощь =====
   try{ const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}'); if(saved.fio) fioEl.value=saved.fio; if(saved.group) groupEl.value=saved.group; if(saved.difficulty) difEl.value=saved.difficulty; }catch{}
   document.getElementById('saveProfile').onclick = ()=>{ const prof={ fio:fioEl.value.trim(), group:groupEl.value.trim(), difficulty:difEl.value }; localStorage.setItem('puzzleProfile', JSON.stringify(prof)); };
@@ -466,10 +422,10 @@
     placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00';
     for(const p of pieces){ p.locked=false; p.dx=0; p.dy=0; }
     order=d3.shuffle(d3.range(TOTAL)); cursor=0; current=order[cursor];
-    fitProjection(); rebuildGeometry(); fitView(); drawTray(); showCurrentPiece(false); drawAll(true);
+    fitProjection(); rebuildGeometry(); fitView(); showCurrentPiece(); drawAll(true);
   };
   document.getElementById('help').onclick = ()=>{
-    alert('Правила:\n• Укажите ФИО и номер группы, выберите сложность.\n• Текущий субъект РФ всегда появляется в «стартовой зоне» у правого края карты; можно начать перетаскивание прямо из «лотка».\n• «Режим карты» включает панорамирование/масштабирование холста; выключите, чтобы тянуть деталь.\n• Поставленные субъекты подсвечиваются ярко-сине-голубым (#00AEEF). После фиксации сразу появляется следующий субъект.\n• По завершении результат сохраняется в таблицу лидеров (Firebase) и доступен в CSV.');
+    alert('Правила:\n• Тяните текущий субъект РФ из нижней пунктирной полосы в нужное место.\n• «Режим карты» включает панорамирование/масштаб; выключите, чтобы тянуть деталь.\n• Зафиксированные субъекты подсвечиваются ярко-сине-голубым (#00AEEF). Следующий субъект появляется автоматически в стартовой полосе.');
   };
 
   // ===== Лидерборд / CSV =====
@@ -515,7 +471,7 @@
 
   // ===== Старт =====
   statusEl.textContent='Карта загружена';
-  drawTray(); showCurrentPiece(false); drawAll(true);
+  fitView(); showCurrentPiece(); drawAll(true);
 })();
 </script>
 </body>
