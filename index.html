@@ -38,7 +38,6 @@
           <option value="hard">Высокая</option>
         </select>
       </label>
-      <button id="saveProfile" class="btn">Сохранить</button>
       <span class="pill">Поставлено: <b id="placed">0 / 89</b></span>
       <span class="pill">Время: <b id="time">00:00</b></span>
       <button id="reset" class="btn">Сбросить</button>
@@ -169,7 +168,7 @@
   }
   fitProjection();
 
-  // ===== Helpers: projection & own bounds/anchor (экранные px) =====
+  // ===== Helpers (проектирование и вычисление bbox в экранных px) =====
   function projectPt(lnglat){
     const pt = projection(lnglat);
     return pt ? [pt[0]+_pad, pt[1]+_pad] : null;
@@ -190,8 +189,8 @@
     return {minX,minY,maxX,maxY, w:Math.max(1,maxX-minX), h:Math.max(1,maxY-minY), cx:(minX+maxX)/2, cy:(minY+maxY)/2};
   }
 
-  // ===== Paths, bounds, anchors =====
-  function buildPath2D(f){
+  // ===== Paths: обычные (толеранс) и hi-res (для лотка) =====
+  function buildPath2D(f, tol){
     const p = new Path2D();
     const g=f.geometry||{}, arr=(g.type==='Polygon')?[g.coordinates||[]]:(g.coordinates||[]);
     arr.forEach(rings=>{
@@ -201,24 +200,31 @@
           const pt = projectPt(lnglat); if(!pt) return;
           const x = pt[0], y = pt[1];
           if(idx===0){ p.moveTo(x,y); prev=[x,y]; }
-          else if(!prev || Math.hypot(x-prev[0], y-prev[1])>0.8){ p.lineTo(x,y); prev=[x,y]; }
+          else{
+            const ok = (!prev) || (Math.hypot(x-prev[0], y-prev[1])> (tol||0) );
+            if(ok){ p.lineTo(x,y); prev=[x,y]; }
+          }
         });
         p.closePath();
       });
     });
     return p;
   }
-  let paths = features.map(buildPath2D);
+  let paths = features.map(f=>buildPath2D(f, 0.8)); // карта и перетаскивание
+  let pathsHi = new Array(features.length);        // кэш hi-res для лотка (без упрощения)
+  function getHiPath(i){ return pathsHi[i] || (pathsHi[i]=buildPath2D(features[i], 0)); }
+
   let boundsArr = features.map(featureBoundsPx);
   let anchors = boundsArr.map(b=>[b.cx,b.cy]);
 
   function rebuildGeometry(){
-    paths = features.map(buildPath2D);
+    paths = features.map(f=>buildPath2D(f, 0.8));
+    pathsHi = new Array(features.length);
     boundsArr = features.map(featureBoundsPx);
     anchors = boundsArr.map(b=>[b.cx,b.cy]);
   }
 
-  // ===== View, tray =====
+  // ===== View & tray =====
   const TRAY = { height:118, margin:8, pad:8 };
   let view = { k:1, x:0, y:0 };
   const viewMin = 0.8, viewMax = 16.0;
@@ -301,7 +307,7 @@
   function drawMap(){
     ctx.save(); setScene(ctx);
     for(const path of paths){ ctx.fillStyle='#152b55'; ctx.fill(path); }
-    // «тонкие» границы на карте
+    // тонкие границы на карте
     ctx.strokeStyle='#25407a';
     ctx.lineWidth=Math.max(1/view.k, 0.6);
     for(const path of paths){ ctx.stroke(path); }
@@ -309,7 +315,7 @@
   }
 
   function drawPieces(){
-    // закреплённые
+    // закреплённые на карте
     ctx.save(); setScene(ctx);
     for(const p of pieces){
       if(!p.locked) continue;
@@ -332,8 +338,10 @@
         const s = Math.min((tr.w*0.8)/bw, (tr.h*0.8)/bh);
         const cx = tr.x + tr.w/2, cy = tr.y + tr.h/2;
 
+        const hiPath = getHiPath(pc.i);
+
         ctx.save();
-        // Превью целиком в экранных координатах
+        // Рисуем превью в экранных координатах
         ctx.setTransform(dpr,0,0,dpr,0,0);
         ctx.translate(cx, cy);
         ctx.scale(s, s);
@@ -341,13 +349,13 @@
 
         // Заполнение
         ctx.fillStyle='#FF3B30'; ctx.globalAlpha=0.98;
-        ctx.fill(paths[pc.i]);
+        ctx.fill(hiPath);
 
-        // ВАЖНО: контур фиксированной толщины, не зависящей от s
-        const fixedPx = 1.2;               // ~1.2 px для всех
+        // Контур фиксированной толщины (~1.2px), не зависящей от масштаба детали
+        const fixedPx = 1.2;
         ctx.strokeStyle='#680000';
-        ctx.lineWidth = fixedPx / s;       // компенсируем масштаб
-        ctx.stroke(paths[pc.i]);
+        ctx.lineWidth = fixedPx / s;
+        ctx.stroke(hiPath);
 
         ctx.restore();
       }else{
@@ -468,9 +476,9 @@
   function fmt(ms){ const CAP=(59*60+59)*1000; const t=Math.min(ms,CAP); const s=Math.floor(t/1000), m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}` }
   (function tick(){ if(!finished && startAt){ timeEl.textContent = fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
 
-  // ===== Difficulty =====
+  // ===== Difficulty: snap и блокировка после 1-й детали =====
   function snapRadiusBy(diff){ return diff==='easy'?60:(diff==='medium'?30:12); }
-  difEl.addEventListener('change',()=>{ if(difficultyLocked){ alert('Сложность нельзя менять после установки первой детали. Нажмите «Сбросить» для новой игры.'); } });
+  difEl.addEventListener('change',()=>{ saveProfile(); if(difficultyLocked){ alert('Сложность нельзя менять после установки первой детали. Нажмите «Сбросить» для новой игры.'); } });
 
   // ===== Input: drag / pan / zoom + pinch =====
   let draggingPiece=false, draggingFromTray=false, draggingPan=false, dragOff={x:0,y:0}, panOff={x:0,y:0};
@@ -565,7 +573,7 @@
               statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f';
               persistResult();
               if(!celebrating) startFireworks();
-              startRecolor(); // <- плавная перекраска всех закреплённых в ярко-красный за 1с
+              startRecolor();
             }else{
               do{ cursor++; }while(cursor<TOTAL && pieces[order[cursor]]?.locked);
               if(cursor<TOTAL){ setCurrent(order[cursor]); }
@@ -583,16 +591,31 @@
 
   cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const k=(e.deltaY<0)?1.15:(1/1.15); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
 
-  // Кнопки
+  // ===== Автосохранение профиля (без кнопки) =====
+  function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
+  function saveProfile(){
+    const prof={ fio:fioEl.value.trim(), group:groupEl.value.trim(), difficulty:difEl.value };
+    try{ localStorage.setItem('puzzleProfile', JSON.stringify(prof)); }catch{}
+  }
+  const debouncedSave = debounce(saveProfile, 300);
+  fioEl.addEventListener('input', debouncedSave);
+  groupEl.addEventListener('input', debouncedSave);
+  difEl.addEventListener('change', saveProfile);
+
+  // Восстановление профиля при запуске
+  try{
+    const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}');
+    if(saved.fio) fioEl.value=saved.fio;
+    if(saved.group) groupEl.value=saved.group;
+    if(saved.difficulty && ['easy','medium','hard'].includes(saved.difficulty)) difEl.value=saved.difficulty;
+  }catch{}
+
+  // ===== Кнопки =====
   zoomInBtn.onclick  = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1.2, r.width/2, r.height/2); };
   zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
-  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижнего «лотка» на карту: потяните вверх за край лотка.\n• Масштаб/перемещение: колесо мыши; на телефоне — один палец панорамирование, два пальца — пинч-зум (макс. ×16).\n• После установки первой детали сложность фиксируется до «Сбросить».\n• «Вернуть деталь» — возвращает текущую незакреплённую деталь в лоток.\n• «Центрировать карту» — исходный вид.');
+  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижнего «лотка» на карту: потяните вверх за край лотка.\n• Масштаб/перемещение: колесо мыши; на телефоне — один палец панорамирование, два пальца — пинч-зум (макс. ×16).\n• Сложность фиксируется после установки первой детали.\n• «Вернуть деталь» — возвращает текущую незакреплённую деталь в лоток.\n• «Центрировать карту» — исходный вид.');
   returnBtn.onclick = ()=>{ const p=pieces[current]; if(!p.locked){ setPieceInTray(current, true); buildPick(); drawAll(true); } };
   centerBtn.onclick  = ()=>{ fitView(); if(!pieces[current].locked){ setPieceInTray(current, true); buildPick(); } drawAll(true); };
-
-  // ===== Profile, reset =====
-  try{ const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}'); if(saved.fio) fioEl.value=saved.fio; if(saved.group) groupEl.value=saved.group; if(saved.difficulty) difEl.value=saved.difficulty; }catch{}
-  document.getElementById('saveProfile').onclick = ()=>{ const prof={ fio:fioEl.value.trim(), group:groupEl.value.trim(), difficulty:difEl.value }; localStorage.setItem('puzzleProfile', JSON.stringify(prof)); };
 
   document.getElementById('reset').onclick = ()=>{
     placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00';
@@ -602,7 +625,7 @@
     fitProjection(); rebuildGeometry(); fitView(); setCurrent(order[cursor]); drawAll(true);
   };
 
-  // ===== Leaderboard / CSV =====
+  // ===== Лидерборд / CSV =====
   function msToMMSS(ms){ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
   function q(s){ s=String(s||''); return `"${s.replace(/"/g,'""')}"`; }
   function renderLeaderboard(all){
@@ -644,6 +667,8 @@
 
   // ===== Start =====
   statusEl.textContent='Карта загружена';
+  // восстановить профиль до старта
+  saveProfile();
   setCurrent(current); drawAll(true);
 })();
 </script>
