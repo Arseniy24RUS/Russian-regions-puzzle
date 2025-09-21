@@ -55,7 +55,7 @@
 <script>
 (async function(){
   const TOPO_NAME = 'Russian_regions_TopoJSON.topojson';
-  const TOPO_URL = TOPO_NAME + '?v=' + Date.now(); // убираем кэш
+  const TOPO_URL = TOPO_NAME + '?v=' + Date.now(); // anti-cache
   const TOTAL = 89;
   const SNAP = 20;
 
@@ -68,7 +68,7 @@
   const statusEl = document.getElementById('status');
   const logEl = document.getElementById('diag');
 
-  function log(msg, cls){ const s = document.createElement('div'); if(cls) s.className = cls; s.textContent = msg; logEl.appendChild(s); logEl.scrollTop = logEl.scrollHeight; console.log('[diag]', msg); }
+  function log(msg, cls){ const s = document.createElement('div'); if(cls) s.className = cls; s.textContent = msg; logEl.appendChild(s); logEl.scrollTop = logEl.scrollHeight; }
 
   snapEl.textContent = SNAP + ' px';
 
@@ -84,16 +84,16 @@
   }
   fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); drawAll(true); });
 
-  // 1) Проверим доступность файла напрямую HEAD-запросом
+  // HEAD может быть запрещён некоторыми хостингами — поэтому пробуем, но не делаем из этого «фатальную» ошибку.
   try{
     const head = await fetch(TOPO_URL, { method:'HEAD', cache:'no-store' });
-    if(!head.ok){ log(`HEAD ${TOPO_NAME}: HTTP ${head.status} — файл недоступен (имя/путь/регистр?)`, 'err'); statusEl.textContent = 'Карта не найдена'; statusEl.classList.add('err'); return; }
-    log(`HEAD ${TOPO_NAME}: OK (HTTP ${head.status})`, 'ok');
+    if(head.ok) log(`HEAD ${TOPO_NAME}: OK (HTTP ${head.status})`, 'ok');
+    else log(`HEAD ${TOPO_NAME}: HTTP ${head.status} — возможно, этот метод не разрешён, продолжим с GET`, 'warn');
   }catch(e){
-    log(`HEAD ${TOPO_NAME}: исключение ${e}`, 'err'); statusEl.textContent = 'Сетевая ошибка'; statusEl.classList.add('err'); return;
+    log(`HEAD ${TOPO_NAME}: исключение (не критично): ${e}`, 'warn');
   }
 
-  // 2) Загружаем JSON с защитой от «битых» данных
+  // Загружаем JSON
   let topo;
   try{
     const res = await fetch(TOPO_URL, { cache:'no-store' });
@@ -108,7 +108,7 @@
   if(!topo || topo.type !== 'Topology'){ log('В файле нет type: "Topology" — это не TopoJSON', 'err'); statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return; }
   if(!topo.objects){ log('В файле нет topo.objects — структура неожиданна', 'err'); statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return; }
 
-  // 3) Выбираем правильный объект из topo.objects (содержит полигоны и близок по числу к 89)
+  // Выбор объекта с полигонами и числом геометрий около 89 (исправлено: используем TOTAL, а не ${TOTAL})
   const objects = topo.objects;
   const keys = Object.keys(objects);
   log(`Найдено topo.objects: [${keys.join(', ')}]`);
@@ -116,7 +116,7 @@
     const g = objects[k].geometries || [];
     const n = g.length|0;
     const hasPoly = g.some(geom => /Polygon/i.test(geom.type||''));
-    const score = (hasPoly?0:1000) + Math.abs(n - ${TOTAL});
+    const score = (hasPoly?0:1000) + Math.abs(n - TOTAL); // ← фикс
     return {k,n,hasPoly,score};
   }).sort((a,b)=> a.score - b.score);
   const chosen = scored[0];
@@ -130,9 +130,7 @@
   }
   const features = geo.features;
   log(`features: ${features.length} (ожидаем ~89)`);
-  if(features.length<50 || features.length>150) log('Предупреждение: число объектов выглядит нетипичным', 'warn');
 
-  // Проекция и оффсет
   let projection = d3.geoMercator();
   let _offsetMap = {x:8,y:8};
   function fitProjection(){
