@@ -21,7 +21,6 @@
   .table{ width:100%; border-collapse:collapse; font-size:13px }
   .table th,.table td{ border-bottom:1px solid #1d2745; padding:6px 8px; text-align:left }
   .footer{ margin-top:12px; font-size:12px; color:#a9b7d6; text-align:center }
-  .lb-title{ font-weight:600; margin-top:10px }
 </style>
 </head>
 <body>
@@ -59,31 +58,20 @@
 
     <div class="card">
       <div class="row" style="justify-content:space-between">
-        <div class="row" style="gap:12px">
-          <div class="lb-title">Таблица лидеров</div>
-          <div class="pill">Выводим лучшие попытки в каждой сложности</div>
-        </div>
+        <div style="font-weight:600">Таблица лидеров</div>
         <div class="row">
-          <input id="lbGroupFilter" class="input" placeholder="Фильтр по группе (например, ГГУБД-01-25)" style="width:260px">
-          <button id="exportCSV" class="btn">Скачать CSV (все результаты)</button>
+          <select id="lbDifficulty" class="input">
+            <option value="all">Все сложности</option>
+            <option value="easy">Лёгкая</option>
+            <option value="medium">Средняя</option>
+            <option value="hard">Высокая</option>
+          </select>
+          <input id="lbGroupFilter" class="input" placeholder="Фильтр по группе" style="width:140px">
+          <button id="exportCSV" class="btn">Скачать CSV</button>
         </div>
       </div>
-
-      <div class="lb-title">Лёгкая</div>
-      <table class="table" id="leader_easy" style="margin-top:6px">
-        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Время</th><th>Дата</th></tr></thead>
-        <tbody></tbody>
-      </table>
-
-      <div class="lb-title">Средняя</div>
-      <table class="table" id="leader_medium" style="margin-top:6px">
-        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Время</th><th>Дата</th></tr></thead>
-        <tbody></tbody>
-      </table>
-
-      <div class="lb-title">Высокая</div>
-      <table class="table" id="leader_hard" style="margin-top:6px">
-        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Время</th><th>Дата</th></tr></thead>
+      <table class="table" id="leaderboard" style="margin-top:8px">
+        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Сложность</th><th>Время</th><th>Дата</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -122,6 +110,8 @@
   const fioEl = document.getElementById('fio');
   const groupEl = document.getElementById('group');
   const difEl = document.getElementById('difficulty');
+  const lbTable = document.querySelector('#leaderboard tbody');
+  const lbDiffEl = document.getElementById('lbDifficulty');
   const lbGroupEl = document.getElementById('lbGroupFilter');
   const exportBtn = document.getElementById('exportCSV');
   const zoomInBtn = document.getElementById('zoomIn');
@@ -130,7 +120,7 @@
   const returnBtn = document.getElementById('returnPiece');
   const centerBtn = document.getElementById('centerView');
 
-  // ===== Canvas DPI =====
+  // ===== DPI / Canvas =====
   let dpr = 1;
   function fitCanvas(){
     const r = cv.getBoundingClientRect();
@@ -143,6 +133,11 @@
     pick.setTransform(dpr,0,0,dpr,0,0);
   }
   fitCanvas();
+  window.addEventListener('resize', ()=>{
+    fitCanvas(); fitProjection(); rebuildGeometry(); fitView();
+    if(!pieces[current].locked){ setPieceInTray(current, true); buildPick(); }
+    drawAll(true);
+  });
 
   // ===== Load TopoJSON =====
   const TOPO = 'Russian_regions_TopoJSON.topojson';
@@ -151,8 +146,10 @@
     const res = await fetch(TOPO+'?v='+Date.now(), {cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
     topo = await res.json();
-  }catch(e){ statusEl.textContent = 'Карта не найдена'; statusEl.style.background = '#5b1020'; console.error(e); return; }
-
+  }catch(e){
+    statusEl.textContent = 'Карта не найдена'; statusEl.style.background = '#5b1020';
+    console.error(e); return;
+  }
   const chosen = Object.keys(topo.objects||{}).map(k=>{
     const g=topo.objects[k].geometries||[]; const n=g.length|0;
     const hasPoly=g.some(geom=>/Polygon/i.test(geom.type||'')); const score=(hasPoly?0:1000)+Math.abs(n-89);
@@ -171,7 +168,7 @@
   }
   fitProjection();
 
-  // ===== Helpers =====
+  // ===== Helpers: project to screen px =====
   function projectPt(lnglat){
     const pt = projection(lnglat);
     return pt ? [pt[0]+_pad, pt[1]+_pad] : null;
@@ -192,6 +189,8 @@
     return {minX,minY,maxX,maxY, w:Math.max(1,maxX-minX), h:Math.max(1,maxY-minY), cx:(minX+maxX)/2, cy:(minY+maxY)/2};
   }
 
+  // ===== Seam-aware Path builders =====
+  // tol — упрощение (в пикселях); seamBreak — порог «большого скачка» (в пикселях): при превышении начинаем новый под-контур
   function buildPath2D(f, tol, seamBreak){
     const p = new Path2D();
     const g=f.geometry||{}, arr=(g.type==='Polygon')?[g.coordinates||[]]:(g.coordinates||[]);
@@ -203,8 +202,13 @@
           const x = pt[0], y = pt[1];
           if(!prev){ p.moveTo(x,y); prev=[x,y]; subStart=[x,y]; return; }
           const d = Math.hypot(x-prev[0], y-prev[1]);
-          if(d > (seamBreak||80)){ if(subStart) p.closePath(); p.moveTo(x,y); subStart=[x,y]; prev=[x,y]; }
-          else if(d > (tol||0)){ p.lineTo(x,y); prev=[x,y]; }
+          if(d > (seamBreak||80)){ // разрыв по «шву» — закрываем предыдущий контур и начинаем новый
+            if(subStart) p.closePath();
+            p.moveTo(x,y);
+            subStart=[x,y]; prev=[x,y];
+          }else if(d > (tol||0)){
+            p.lineTo(x,y); prev=[x,y];
+          }
         });
         if(subStart) p.closePath();
       });
@@ -212,12 +216,19 @@
     return p;
   }
 
-  let paths   = features.map(f=>buildPath2D(f, 0.8, 80));
-  let pathsHi = new Array(features.length);
+  let paths   = features.map(f=>buildPath2D(f, 0.8, 80)); // карта/перетаскивание: лёгкое упрощение + разрыв по шву
+  let pathsHi = new Array(features.length);               // hi-res для лотка
   function getHiPath(i){ return pathsHi[i] || (pathsHi[i]=buildPath2D(features[i], 0, 80)); }
 
   let boundsArr = features.map(featureBoundsPx);
   let anchors   = boundsArr.map(b=>[b.cx,b.cy]);
+
+  function rebuildGeometry(){
+    paths   = features.map(f=>buildPath2D(f, 0.8, 80));
+    pathsHi = new Array(features.length);
+    boundsArr = features.map(featureBoundsPx);
+    anchors   = boundsArr.map(b=>[b.cx,b.cy]);
+  }
 
   // ===== View & tray =====
   const TRAY = { height:118, margin:8, pad:8 };
@@ -262,58 +273,94 @@
   let startAt=null, finished=false;
   let difficultyLocked=false;
 
-  // ===== Tray =====
+  // ===== Tray placement =====
   function trayRect(){ const r=cv.getBoundingClientRect(); return { x: TRAY.pad, y: r.height - TRAY.height - TRAY.margin, w: r.width - 2*TRAY.pad, h: TRAY.height }; }
   function trayCenter(){ const tr=trayRect(); return { x: tr.x + tr.w*0.5, y: tr.y + tr.h*0.5 }; }
   function spawnOffsetsFor(i){ const c=trayCenter(); const w=screenToWorld(c.x,c.y); const [ax,ay]=anchors[i]; return { dx:w.x-ax, dy:w.y-ay }; }
-  function setPieceInTray(i, yes){ const p = pieces[i]; p.inTray = !!yes; if(p.inTray){ const off = spawnOffsetsFor(i); p.dx = off.dx; p.dy = off.dy; } }
-  function setCurrent(i){ current = i; setPieceInTray(i, true); buildPick(); drawAll(false); }
+  function setPieceInTray(i, yes){
+    const p = pieces[i];
+    p.inTray = !!yes;
+    if(p.inTray){ const off = spawnOffsetsFor(i); p.dx = off.dx; p.dy = off.dy; }
+  }
+  function setCurrent(i){
+    current = i;
+    setPieceInTray(i, true);
+    buildPick(); drawAll(false);
+  }
 
   // ===== Finish recolor =====
-  let recolorProgress = 0;
-  const BLUE = [0x00,0xAE,0xEF], RED=[0xFF,0x3B,0x30];
+  let recolorProgress = 0; // 0..1
+  const BLUE = [0x00,0xAE,0xEF];
+  const RED  = [0xFF,0x3B,0x30];
   function mix(a,b,t){ return Math.round(a+(b-a)*t); }
   function rgbaHex(arr){ return `rgb(${arr[0]},${arr[1]},${arr[2]})`; }
-  function pieceFillColor(){ if(recolorProgress<=0) return rgbaHex(BLUE); const c=[mix(BLUE[0],RED[0],recolorProgress),mix(BLUE[1],RED[1],recolorProgress),mix(BLUE[2],RED[2],recolorProgress)]; return rgbaHex(c); }
-  function startRecolor(){ const t0=performance.now(); (function step(now){ recolorProgress=Math.min(1,(now-t0)/1000); drawAll(false); if(recolorProgress<1) requestAnimationFrame(step); })(); }
+  function pieceFillColor(){
+    if(recolorProgress<=0) return rgbaHex(BLUE);
+    const c=[ mix(BLUE[0],RED[0],recolorProgress), mix(BLUE[1],RED[1],recolorProgress), mix(BLUE[2],RED[2],recolorProgress) ];
+    return rgbaHex(c);
+  }
+  function startRecolor(){
+    const t0 = performance.now();
+    function step(now){
+      recolorProgress = Math.min(1, (now - t0)/1000);
+      drawAll(false);
+      if(recolorProgress<1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
 
   // ===== Render =====
   function drawMap(){
     ctx.save(); setScene(ctx);
     for(const path of paths){ ctx.fillStyle='#152b55'; ctx.fill(path); }
-    ctx.strokeStyle='#25407a'; ctx.lineWidth=Math.max(1/view.k, 0.6);
+    ctx.strokeStyle='#25407a';
+    ctx.lineWidth=Math.max(1/view.k, 0.6);
     for(const path of paths){ ctx.stroke(path); }
     ctx.restore();
   }
 
   function drawPieces(){
+    // locked pieces
     ctx.save(); setScene(ctx);
     for(const p of pieces){
       if(!p.locked) continue;
       ctx.save(); ctx.translate(p.dx,p.dy);
-      ctx.fillStyle = pieceFillColor(); ctx.globalAlpha=0.98;
+      ctx.fillStyle = pieceFillColor();
+      ctx.globalAlpha=0.98;
       ctx.strokeStyle='#08305c'; ctx.lineWidth=Math.max(1/view.k, 0.6);
       ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]);
       ctx.restore();
     }
     ctx.restore();
 
+    // current piece
     const pc = pieces[current];
     if(!pc.locked){
       if(pc.inTray){
         const tr = trayRect();
-        const b = boundsArr[pc.i]; const bw=b.w, bh=b.h;
+        const b = boundsArr[pc.i];
+        const bw = b.w, bh = b.h;
         const s = Math.min((tr.w*0.8)/bw, (tr.h*0.8)/bh);
         const cx = tr.x + tr.w/2, cy = tr.y + tr.h/2;
         const hiPath = getHiPath(pc.i);
 
-        ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
-        ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-b.cx, -b.cy);
-        ctx.fillStyle='#FF3B30'; ctx.globalAlpha=0.98; ctx.fill(hiPath);
-        const fixedPx=1.2; ctx.strokeStyle='#680000'; ctx.lineWidth=fixedPx/s; ctx.stroke(hiPath);
+        ctx.save();
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        ctx.translate(cx, cy);
+        ctx.scale(s, s);
+        ctx.translate(-b.cx, -b.cy);
+
+        ctx.fillStyle='#FF3B30'; ctx.globalAlpha=0.98;
+        ctx.fill(hiPath);
+
+        const fixedPx = 1.2;
+        ctx.strokeStyle='#680000';
+        ctx.lineWidth = fixedPx / s;
+        ctx.stroke(hiPath);
         ctx.restore();
       }else{
-        ctx.save(); setScene(ctx); ctx.translate(pc.dx,pc.dy);
+        ctx.save(); setScene(ctx);
+        ctx.translate(pc.dx,pc.dy);
         ctx.fillStyle='#FF3B30'; ctx.globalAlpha=0.98;
         ctx.strokeStyle='#680000'; ctx.lineWidth=Math.max(1/view.k,0.6);
         ctx.fill(paths[pc.i]); ctx.stroke(paths[pc.i]);
@@ -325,8 +372,10 @@
   function drawTray(){
     const tr = trayRect();
     ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.strokeStyle='rgba(200,220,255,.35)'; ctx.setLineDash([8,6]); ctx.lineWidth=1.5; ctx.strokeRect(tr.x,tr.y,tr.w,tr.h); ctx.setLineDash([]);
-    ctx.fillStyle='#cfe0ff'; ctx.font='12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.strokeStyle='rgba(200,220,255,.35)'; ctx.setLineDash([8,6]); ctx.lineWidth=1.5;
+    ctx.strokeRect(tr.x,tr.y,tr.w,tr.h); ctx.setLineDash([]);
+    ctx.fillStyle='#cfe0ff';
+    ctx.font='12px system-ui, -apple-system, Segoe UI, Roboto, Arial';
     ctx.fillText('Текущий субъект РФ:', tr.x+10, tr.y+18);
     ctx.font='bold 14px system-ui, -apple-system, Segoe UI, Roboto, Arial';
     ctx.fillText(finished ? 'Готово!' : getName(current), tr.x+10, tr.y+38);
@@ -334,33 +383,127 @@
   }
 
   function buildPick(){
-    pick.save(); pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
+    pick.save();
+    pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
     pick.clearRect(0,0,cv.width,cv.height);
     const p = pieces[current];
-    if(!p.locked && !p.inTray){ pick.save(); pick.translate(p.dx,p.dy); pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle; pick.fill(paths[p.i]); pick.stroke(paths[p.i]); pick.restore(); }
+    if(!p.locked && !p.inTray){
+      pick.save(); pick.translate(p.dx,p.dy);
+      pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
+      pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
+      pick.restore();
+    }
     pick.restore();
   }
 
   function drawAll(rebuild=false){
-    ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,cv.width,cv.height);
-    drawMap(); drawPieces(); drawTray(); if(rebuild) buildPick();
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cv.width,cv.height);
+    drawMap(); drawPieces(); drawTray();
+    if(rebuild) buildPick();
+  }
+
+  // ===== Celebration =====
+  let celebrating = false;
+  function playFanfare(){
+    try{
+      const AC = new (window.AudioContext||window.webkitAudioContext)();
+      const seq = [880, 1175, 1568];
+      let t = AC.currentTime + 0.05;
+      seq.forEach((f,i)=>{
+        const o=AC.createOscillator(), g=AC.createGain();
+        o.type='triangle'; o.frequency.value=f;
+        g.gain.setValueAtTime(0.0001,t);
+        g.gain.exponentialRampToValueAtTime(0.2,t+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
+        o.connect(g).connect(AC.destination); o.start(t); o.stop(t+0.26);
+        t += 0.19;
+      });
+    }catch(e){}
+  }
+  function startFireworks(){
+    celebrating = true;
+    const t0 = performance.now();
+    const r = cv.getBoundingClientRect();
+    const W = r.width, H = r.height;
+    const mapBottom = H - TRAY.height - TRAY.margin;
+    const bursts = [];
+
+    function newBurst(){
+      const x = 40 + Math.random()*(W-80);
+      const y = 40 + Math.random()*(mapBottom-80);
+      const c = 24 + Math.floor(Math.random()*24);
+      const parts=[];
+      for(let i=0;i<c;i++){
+        const ang = (i/c)*Math.PI*2;
+        const spd = 1.2 + Math.random()*2.2;
+        parts.push({x,y, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, life:1});
+      }
+      bursts.push({parts, age:0});
+    }
+
+    function step(now){
+      const dt = Math.min(0.033, (now - (step._last||now))/1000); step._last = now;
+      const elapsed = now - t0;
+      if(elapsed < 1600 && (!step._lastBurst || now - step._lastBurst > 180)){ newBurst(); step._lastBurst = now; }
+
+      drawAll(false);
+
+      ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
+      bursts.forEach(b=>{
+        b.age += dt;
+        b.parts.forEach(p=>{
+          p.vy += 0.06;
+          p.x += p.vx*4; p.y += p.vy*4;
+          p.life -= 0.015 + Math.random()*0.01;
+          const a = Math.max(0, Math.min(1, p.life));
+          ctx.globalAlpha = a;
+          ctx.fillStyle = 'rgb('+(200+Math.floor(Math.random()*55))+','+(150+Math.floor(Math.random()*105))+',255)';
+          ctx.beginPath(); ctx.arc(p.x,p.y, 2.2, 0, Math.PI*2); ctx.fill();
+        });
+      });
+      for(let i=bursts.length-1;i>=0;i--){ bursts[i].parts = bursts[i].parts.filter(p=>p.life>0); if(!bursts[i].parts.length) bursts.splice(i,1); }
+      ctx.restore();
+
+      if(elapsed < 2300 || bursts.length){ requestAnimationFrame(step); }
+      else { celebrating=false; }
+    }
+    requestAnimationFrame(step);
+    playFanfare();
   }
 
   // ===== Timer =====
   function fmt(ms){ const CAP=(59*60+59)*1000; const t=Math.min(ms,CAP); const s=Math.floor(t/1000), m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}` }
   (function tick(){ if(!finished && startAt){ timeEl.textContent = fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
 
-  // ===== Difficulty =====
+  // ===== Difficulty & locking =====
   function snapRadiusBy(diff){ return diff==='easy'?60:(diff==='medium'?30:12); }
   difEl.addEventListener('change',()=>{ saveProfile(); if(difficultyLocked){ alert('Сложность нельзя менять после установки первой детали. Нажмите «Сбросить» для новой игры.'); } });
 
   // ===== Input: drag / pan / zoom + pinch =====
   let draggingPiece=false, draggingFromTray=false, draggingPan=false, dragOff={x:0,y:0}, panOff={x:0,y:0};
   const pointers=new Map(); let pinch=null;
+
   function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
-  function zoomAt(factor, cx, cy){ const old=view.k, k=Math.max(viewMin, Math.min(viewMax, old*factor)); const w=screenToWorld(cx,cy); view.k=k; view.x = cx - w.x*k; view.y = cy - w.y*k; drawAll(true); }
-  function startPinch(){ const pts=[...pointers.values()]; if(pts.length<2) return; const a=pts[0], b=pts[1]; const cx=(a.x+b.x)/2, cy=(a.y+b.y)/2; pinch={cx,cy,d0:dist(a,b),k0:view.k,world:screenToWorld(cx,cy)}; }
-  function updatePinch(){ if(!pinch) return; const pts=[...pointers.values()]; if(pts.length<2) return; const a=pts[0], b=pts[1]; const d1=dist(a,b); if(d1<=0) return; const factor=d1/pinch.d0; const k=Math.max(viewMin, Math.min(viewMax, pinch.k0*factor)); const w=pinch.world; view.k=k; view.x = pinch.cx - w.x*k; view.y = pinch.cy - w.y*k; drawAll(true); }
+  function zoomAt(factor, cx, cy){
+    const old=view.k, k=Math.max(viewMin, Math.min(viewMax, old*factor));
+    const w=screenToWorld(cx,cy);
+    view.k=k; view.x = cx - w.x*k; view.y = cy - w.y*k; drawAll(true);
+  }
+
+  function startPinch(){
+    const pts=[...pointers.values()]; if(pts.length<2) return;
+    const a=pts[0], b=pts[1]; const cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+    pinch = { cx, cy, d0: dist(a,b), k0:view.k, world: screenToWorld(cx,cy) };
+  }
+  function updatePinch(){
+    if(!pinch) return;
+    const pts=[...pointers.values()]; if(pts.length<2) return;
+    const a=pts[0], b=pts[1]; const d1=dist(a,b); if(d1<=0) return;
+    const factor=d1/pinch.d0; const k=Math.max(viewMin, Math.min(viewMax, pinch.k0*factor));
+    const w=pinch.world; view.k=k; view.x = pinch.cx - w.x*k; view.y = pinch.cy - w.y*k; drawAll(true);
+  }
+
   function inTray(x,y){ const tr=trayRect(); return x>=tr.x && x<=tr.x+tr.w && y>=tr.y && y<=tr.y+tr.h; }
 
   cv.addEventListener('pointerdown', e=>{
@@ -368,13 +511,19 @@
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
     pointers.set(e.pointerId,{x,y});
     if(pointers.size===2){ draggingPiece=false; draggingPan=false; startPinch(); drawAll(true); return; }
+
     const p = pieces[current];
-    if(!p.locked && inTray(x,y)){ draggingPiece=true; draggingFromTray=true; }
-    else{
+    if(!p.locked && inTray(x,y)){
+      draggingPiece=true; draggingFromTray=true;
+    }else{
       const px=Math.max(0,Math.min(cv.width-1,Math.round(x*dpr))), py=Math.max(0,Math.min(cv.height-1,Math.round(y*dpr)));
       const d=pick.getImageData(px,py,1,1).data; const onPiece = (d[3]>0);
-      if(onPiece){ draggingPiece=true; draggingFromTray=false; const s=screenToWorld(x,y); const [ax,ay]=anchors[current]; dragOff={x: s.x-(ax+p.dx), y: s.y-(ay+p.dy)}; }
-      else{ draggingPan=true; panOff={x:x - view.x, y:y - view.y}; }
+      if(onPiece){ draggingPiece=true; draggingFromTray=false;
+        const s=screenToWorld(x,y); const [ax,ay]=anchors[current];
+        dragOff={x: s.x-(ax+p.dx), y: s.y-(ay+p.dy)};
+      }else{
+        draggingPan=true; panOff={x:x - view.x, y:y - view.y};
+      }
     }
   });
 
@@ -382,19 +531,31 @@
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
     if(pointers.has(e.pointerId)) pointers.set(e.pointerId,{x,y});
     if(pointers.size>=2){ updatePinch(); return; }
+
     const p=pieces[current];
     if(draggingPiece){
       if(draggingFromTray){
         const tr=trayRect();
-        if(y < tr.y){ const s=screenToWorld(x,y); const [ax,ay]=anchors[current]; p.inTray=false; p.dx = s.x - ax; p.dy = s.y - ay; dragOff={x:0,y:0}; buildPick(); }
-      }else{ const s=screenToWorld(x,y); const [ax,ay]=anchors[current]; p.dx = s.x - ax - dragOff.x; p.dy = s.y - ay - dragOff.y; }
+        if(y < tr.y){
+          const s=screenToWorld(x,y); const [ax,ay]=anchors[current];
+          p.inTray=false; p.dx = s.x - ax; p.dy = s.y - ay;
+          dragOff={x:0,y:0};
+          buildPick();
+        }
+      }else{
+        const s=screenToWorld(x,y); const [ax,ay]=anchors[current];
+        p.dx = s.x - ax - dragOff.x; p.dy = s.y - ay - dragOff.y;
+      }
       drawAll(false);
-    }else if(draggingPan){ view.x = x - panOff.x; view.y = y - panOff.y; drawAll(true); }
+    }else if(draggingPan){
+      view.x = x - panOff.x; view.y = y - panOff.y; drawAll(true);
+    }
   });
 
   function endPointer(e){
     if(pointers.has(e.pointerId)) pointers.delete(e.pointerId);
     if(pointers.size<2) pinch=null;
+
     if(draggingPiece){
       const p=pieces[current];
       if(!p.inTray){
@@ -410,7 +571,9 @@
             if(placed>=TOTAL && !finished){
               finished=true;
               statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f';
-              persistResult(); if(!celebrating) startFireworks(); startRecolor();
+              persistResult();
+              if(!celebrating) startFireworks();
+              startRecolor();
             }else{
               do{ cursor++; }while(cursor<TOTAL && pieces[order[cursor]]?.locked);
               if(cursor<TOTAL){ setCurrent(order[cursor]); }
@@ -425,35 +588,33 @@
   }
   cv.addEventListener('pointerup', endPointer);
   cv.addEventListener('pointercancel', endPointer);
+
   cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const k=(e.deltaY<0)?1.15:(1/1.15); zoomAt(k, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
 
-  // ===== Fireworks (без изменений) =====
-  let celebrating=false;
-  function playFanfare(){ try{ const AC=new (window.AudioContext||window.webkitAudioContext)(); const seq=[880,1175,1568]; let t=AC.currentTime+0.05; seq.forEach(f=>{ const o=AC.createOscillator(), g=AC.createGain(); o.type='triangle'; o.frequency.value=f; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.2,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.25); o.connect(g).connect(AC.destination); o.start(t); o.stop(t+0.26); t+=0.19; }); }catch(e){} }
-  function startFireworks(){
-    celebrating=true; const t0=performance.now(); const r=cv.getBoundingClientRect(); const W=r.width,H=r.height; const mapBottom=H-TRAY.height-TRAY.margin; const bursts=[];
-    function newBurst(){ const x=40+Math.random()*(W-80), y=40+Math.random()*(mapBottom-80), c=24+Math.floor(Math.random()*24); const parts=[]; for(let i=0;i<c;i++){ const ang=(i/c)*Math.PI*2, spd=1.2+Math.random()*2.2; parts.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,life:1}); } bursts.push({parts,age:0}); }
-    function step(now){
-      const dt=Math.min(0.033,(now-(step._last||now))/1000); step._last=now; const elapsed=now-t0;
-      if(elapsed<1600 && (!step._lastBurst||now-step._lastBurst>180)){ newBurst(); step._lastBurst=now; }
-      drawAll(false);
-      ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
-      bursts.forEach(b=>{ b.age+=dt; b.parts.forEach(p=>{ p.vy+=0.06; p.x+=p.vx*4; p.y+=p.vy*4; p.life-=0.015+Math.random()*0.01; const a=Math.max(0,Math.min(1,p.life)); ctx.globalAlpha=a; ctx.fillStyle='rgb('+(200+Math.floor(Math.random()*55))+','+(150+Math.floor(Math.random()*105))+',255)'; ctx.beginPath(); ctx.arc(p.x,p.y,2.2,0,Math.PI*2); ctx.fill(); }); });
-      for(let i=bursts.length-1;i>=0;i--){ bursts[i].parts=bursts[i].parts.filter(p=>p.life>0); if(!bursts[i].parts.length) bursts.splice(i,1); }
-      ctx.restore();
-      if(elapsed<2300 || bursts.length){ requestAnimationFrame(step); } else { celebrating=false; }
-    }
-    requestAnimationFrame(step); playFanfare();
-  }
-
-  // ===== Profile autosave =====
+  // ===== Autosave profile =====
   function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
-  function saveProfile(){ const prof={ fio:fioEl.value.trim(), group:groupEl.value.trim(), difficulty:difEl.value }; try{ localStorage.setItem('puzzleProfile', JSON.stringify(prof)); }catch{} }
+  function saveProfile(){
+    const prof={ fio:fioEl.value.trim(), group:groupEl.value.trim(), difficulty:difEl.value };
+    try{ localStorage.setItem('puzzleProfile', JSON.stringify(prof)); }catch{}
+  }
   const debouncedSave = debounce(saveProfile, 300);
   fioEl.addEventListener('input', debouncedSave);
   groupEl.addEventListener('input', debouncedSave);
   difEl.addEventListener('change', saveProfile);
-  try{ const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}'); if(saved.fio) fioEl.value=saved.fio; if(saved.group) groupEl.value=saved.group; if(saved.difficulty && ['easy','medium','hard'].includes(saved.difficulty)) difEl.value=saved.difficulty; }catch{}
+
+  try{
+    const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}');
+    if(saved.fio) fioEl.value=saved.fio;
+    if(saved.group) groupEl.value=saved.group;
+    if(saved.difficulty && ['easy','medium','hard'].includes(saved.difficulty)) difEl.value=saved.difficulty;
+  }catch{}
+
+  // ===== Buttons =====
+  zoomInBtn.onclick  = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1.2, r.width/2, r.height/2); };
+  zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
+  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижнего «лотка» на карту: потяните вверх за край лотка.\n• Масштаб/перемещение: колесо мыши; на телефоне — один палец панорамирование, два пальца — пинч-зум (макс. ×16).\n• Сложность фиксируется после установки первой детали.\n• «Вернуть деталь» — возвращает текущую незакреплённую деталь в лоток.\n• «Центрировать карту» — исходный вид.');
+  returnBtn.onclick = ()=>{ const p=pieces[current]; if(!p.locked){ setPieceInTray(current, true); buildPick(); drawAll(true); } };
+  centerBtn.onclick  = ()=>{ fitView(); if(!pieces[current].locked){ setPieceInTray(current, true); buildPick(); } drawAll(true); };
 
   document.getElementById('reset').onclick = ()=>{
     placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00';
@@ -463,115 +624,50 @@
     fitProjection(); rebuildGeometry(); fitView(); setCurrent(order[cursor]); drawAll(true);
   };
 
-  // ===== Leaderboards (3 таблицы) =====
-  const tbEasy   = document.querySelector('#leader_easy tbody');
-  const tbMedium = document.querySelector('#leader_medium tbody');
-  const tbHard   = document.querySelector('#leader_hard tbody');
-
+  // ===== Leaderboard / CSV =====
   function msToMMSS(ms){ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
   function q(s){ s=String(s||''); return `"${s.replace(/"/g,'""')}"`; }
-
-  function normalizeDiff(d){
-    if(d==='easy'||d==='medium'||d==='hard') return d;
-    const t=String(d||'').toLowerCase();
-    if(/легк/.test(t)||t==='e') return 'easy';
-    if(/сред/.test(t)||t==='m') return 'medium';
-    if(/высок|слож/.test(t)||t==='h') return 'hard';
-    return 'easy';
-  }
-
-  function bestPerFioGroupDifficulty(arr, groupFilter){
-    const res = { easy:[], medium:[], hard:[] };
-    const byKey = { easy:new Map(), medium:new Map(), hard:new Map() };
-    const gflt = (groupFilter||'').trim().toLowerCase();
-
-    for(const r of arr){
-      const diff = normalizeDiff(r.difficulty);
-      const fio  = (r.fio||'').trim();
-      const grp  = (r.group||'').trim();
-      if(gflt && !grp.toLowerCase().includes(gflt)) continue;
-
-      const key = `${fio}|||${grp}|||${diff}`;
-      const prev = byKey[diff].get(key);
-      if(!prev || (r.time_ms||1e12) < (prev.time_ms||1e12)){
-        byKey[diff].set(key, r);
-      }
+  function renderLeaderboard(all){
+    const diff = lbDiffEl.value, gflt = lbGroupEl.value.trim().toLowerCase();
+    const byFio = new Map();
+    for(const r of all){
+      if(diff!=='all' && r.difficulty!==diff) continue;
+      if(gflt && (!r.group || !String(r.group).toLowerCase().includes(gflt))) continue;
+      const key = (r.fio||'').trim() || '(без ФИО)';
+      const prev = byFio.get(key);
+      if(!prev || (r.time_ms||1e12) < (prev.time_ms||1e12)) byFio.set(key, r);
     }
-    res.easy   = Array.from(byKey.easy.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
-    res.medium = Array.from(byKey.medium.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
-    res.hard   = Array.from(byKey.hard.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
-    return res;
+    const rows = Array.from(byFio.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
+    function diffText(d){ return d==='easy'?'Лёгкая':(d==='medium'?'Средняя':'Высокая'); }
+    lbTable.innerHTML = rows.map((r,i)=>`<tr><td>${i+1}</td><td>${(r.fio||'')}</td><td>${(r.group||'')}</td><td>${diffText(r.difficulty)}</td><td>${msToMMSS(r.time_ms||0)}</td><td>${new Date(r.timestamp||Date.now()).toLocaleString()}</td></tr>`).join('');
+    exportBtn.onclick = ()=>{
+      const hdr=['rank','fio','group','difficulty','time_mmss','time_ms','timestamp'];
+      const lines=[hdr.join(',')].concat(rows.map((r,i)=>[i+1,q(r.fio),q(r.group),r.difficulty,msToMMSS(r.time_ms||0),r.time_ms||0,new Date(r.timestamp||Date.now()).toISOString()].join(',')));
+      const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='puzzle_results.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    };
   }
-
-  function renderTable(tbody, rows){
-    tbody.innerHTML = rows.map((r,i)=>`<tr><td>${i+1}</td><td>${(r.fio||'')}</td><td>${(r.group||'')}</td><td>${msToMMSS(r.time_ms||0)}</td><td>${new Date(r.timestamp||Date.now()).toLocaleString()}</td></tr>`).join('');
-    if(!rows.length){ tbody.innerHTML = `<tr><td colspan="5" style="color:#a9b7d6">Нет данных</td></tr>`; }
-  }
-
-  let ALL_RESULTS = [];
-  function renderLeaderboards(all){
-    ALL_RESULTS = all.slice(); // сохранить сырой массив для CSV
-    const gflt = lbGroupEl.value;
-    const buckets = bestPerFioGroupDifficulty(all, gflt);
-    renderTable(tbEasy,   buckets.easy);
-    renderTable(tbMedium, buckets.medium);
-    renderTable(tbHard,   buckets.hard);
-  }
-
-  // обновление при вводе фильтра по группе
-  lbGroupEl.addEventListener('input', ()=> renderLeaderboards(ALL_RESULTS));
-
-  // экспорт всех результатов (без фильтров)
-  exportBtn.onclick = ()=>{
-    const hdr=['fio','group','difficulty','time_mmss','time_ms','timestamp_iso','user_agent'];
-    const lines=[hdr.join(',')].concat(ALL_RESULTS.map(r=>{
-      const diff = normalizeDiff(r.difficulty);
-      return [q(r.fio||''), q(r.group||''), diff, msToMMSS(r.time_ms||0), (r.time_ms||0), new Date(r.timestamp||Date.now()).toISOString(), q(r.user_agent||'')].join(',');
-    }));
-    const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='puzzle_results_all.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-  };
-
-  // подписка на БД
   const resultsRef = db.ref('results');
   resultsRef.on('value', snap=>{
     const val = snap.val()||{}; const all = Object.keys(val).map(k=>val[k]).filter(Boolean);
-    renderLeaderboards(all);
+    renderLeaderboard(all);
   });
-
-  // ===== Start game =====
-  function fitProjection(){ const w = Math.floor(cv.width / dpr), h = Math.floor(cv.height/ dpr); projection = d3.geoMercator().rotate([-105,0]).fitSize([w-20, h-20 - (TRAY.height+TRAY.margin)], geo); }
-  function rebuildGeometry(){ paths = features.map(f=>buildPath2D(f, 0.8, 80)); pathsHi = new Array(features.length); boundsArr = features.map(featureBoundsPx); anchors = boundsArr.map(b=>[b.cx,b.cy]); }
-  window.addEventListener('resize', ()=>{ fitCanvas(); fitProjection(); rebuildGeometry(); fitView(); if(!pieces[current].locked){ setPieceInTray(current, true); buildPick(); } drawAll(true); });
-
-  let startAt=null, finished=false;
   function persistResult(){
-    const payload = { fio:(fioEl.value||'').trim(), group:(groupEl.value||'').trim(), difficulty: difEl.value, time_ms: Math.floor((performance.now() - startAt) || 0), placed, total: TOTAL, timestamp: Date.now(), user_agent: navigator.userAgent||'' };
+    const payload = {
+      fio: (fioEl.value||'').trim(),
+      group: (groupEl.value||'').trim(),
+      difficulty: difEl.value,
+      time_ms: Math.floor((performance.now() - startAt) || 0),
+      placed, total: TOTAL,
+      timestamp: Date.now(),
+      user_agent: navigator.userAgent || ''
+    };
     db.ref('results').push(payload).catch(err=>console.error('DB write error:', err));
   }
 
-  // Загрузка/старт
-  const piecesInit = features.map((_,i)=>({ i, dx:0, dy:0, locked:false, inTray:true }));
-  Object.assign(window,{}); // ничего
-  const piecesRef = pieces; // уже объявлено выше
+  // ===== Start =====
   statusEl.textContent='Карта загружена';
-  (function startGame(){ setCurrent(current); drawAll(true); })();
-
-  // Кнопки управления (как раньше)
-  zoomInBtn.onclick  = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1.2, r.width/2, r.height/2); };
-  zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
-  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижнего «лотка» на карту: потяните вверх за край лотка.\n• Масштаб/перемещение: колесо мыши; на телефоне — один палец панорамирование, два пальца — пинч-зум (макс. ×16).\n• Сложность фиксируется после установки первой детали.\n• «Вернуть деталь» — возвращает текущую незакреплённую деталь в лоток.\n• «Центрировать карту» — исходный вид.');
-  returnBtn.onclick = ()=>{ const p=pieces[current]; if(!p.locked){ setPieceInTray(current, true); buildPick(); drawAll(true); } };
-  centerBtn.onclick  = ()=>{ fitView(); if(!pieces[current].locked){ setPieceInTray(current, true); buildPick(); } drawAll(true); };
-
-  // Геймплейные переменные/обработчики (без изменений логики фиксации сложности и пр.)
-  function fitView(){ const r = cv.getBoundingClientRect(); const W=r.width,H=r.height; const b = worldBounds(); const w=Math.max(1,b.maxX-b.minX), h=Math.max(1,b.maxY-b.minY); const pad=8; const mapBottom=H-TRAY.height-TRAY.margin; const availH=(mapBottom - pad) - (pad); const k=Math.min((W-2*pad)/w, (availH)/h); view.k=k; const cx=(b.minX+b.maxX)/2; view.x = W/2 - k*cx; view.y = (mapBottom - pad) - k*b.maxY; }
-  let startAtAssigned=false;
-  document.getElementById('reset').onclick = ()=>{
-    placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00'; recolorProgress=0;
-    for(const p of pieces){ p.locked=false; p.dx=0; p.dy=0; p.inTray=true; }
-    order=d3.shuffle(d3.range(TOTAL)); cursor=0; difficultyLocked=false; difEl.disabled=false;
-    fitProjection(); rebuildGeometry(); fitView(); setCurrent(order[cursor]); drawAll(true);
-  };
+  saveProfile();
+  setCurrent(current); drawAll(true);
 })();
 </script>
 </body>
