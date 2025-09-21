@@ -3,10 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Собери карту России — пазл с OSM-подложкой, лидерами и Firebase</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<title>Собери карту России — Canvas-пазл (без подложки, лидеры, Firebase)</title>
 <style>
-  :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; --accent:#58e0b9; }
+  :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; }
   html,body{height:100%;margin:0;background:var(--bg);color:#e7eeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
   *{ box-sizing:border-box; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent }
   .wrap{ max-width:1200px; margin:0 auto; padding:10px }
@@ -15,15 +14,13 @@
   .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
   .pill{ display:inline-flex; align-items:center; gap:6px; background:#0f1733; border:1px solid #223062; border-radius:999px; padding:6px 10px; font-size:12px; color:#cfe0ff }
   .btn{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 12px; border-radius:10px; cursor:pointer }
-  .input{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 10px; border-radius:10px; }
+  .input{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 10px; border-radius:10px }
   select.input{ padding-right:28px }
   .muted{ color:var(--muted) } .small{ font-size:12px }
   .grid{ display:grid; grid-template-columns:1.4fr .6fr; gap:10px }
   @media (max-width: 980px){ .grid{ grid-template-columns:1fr } }
   .board{ display:grid; grid-template-columns:1fr; gap:10px }
-  .mapwrap{ position:relative; }
-  #map{ width:100%; height:70vh; min-height:520px; border-radius:12px; }
-  #cv{ position:absolute; inset:0; width:100%; height:70vh; min-height:520px; z-index:500; pointer-events:auto; touch-action:none; }
+  canvas#cv{ width:100%; height:70vh; min-height:520px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
   .tray{ background:#0a1127; border:1px dashed #2a3e73; border-radius:12px; padding:10px }
   .table{ width:100%; border-collapse:collapse; font-size:13px }
   .table th,.table td{ border-bottom:1px solid #1d2745; padding:6px 8px; text-align:left }
@@ -59,10 +56,9 @@
 
   <div class="grid" style="margin-top:10px">
     <div class="board">
-      <div class="card mapwrap">
-        <div id="map"></div>
+      <div class="card">
         <canvas id="cv" width="1000" height="680"></canvas>
-        <span id="status" class="pill" style="position:absolute; left:12px; bottom:12px;">Загрузка карты…</span>
+        <span id="status" class="pill" style="margin-top:6px; display:inline-block">Загрузка карты…</span>
       </div>
     </div>
 
@@ -76,7 +72,7 @@
           <button id="takePiece" class="btn">Взять деталь</button>
         </div>
         <canvas id="tray" width="360" height="220" style="margin-top:10px; width:100%; height:220px; background:#0b132b; border:1px solid #1b2953; border-radius:10px"></canvas>
-        <div class="small muted" style="margin-top:6px">Нажмите «Взять деталь» или кликните по «лотку», затем перетаскивайте на карту. Для перемещения карты включите «Режим карты» и используйте «+ / −».</div>
+        <div class="small muted" style="margin-top:6px">Нажмите «Взять деталь» или кликните по «лотку», затем перетаскивайте на карту. Для перемещения/масштабирования включите «Режим карты» и используйте «+ / −».</div>
       </div>
 
       <div class="card">
@@ -101,14 +97,10 @@
     </div>
   </div>
 
-  <div class="footer">
-    Автор: Ситковский Арсений Михайлович, 2025 г. e-mail: omnistat@yandex.ru
-    <br><span class="small muted">Источник подложки: данные © OpenStreetMap contributors.</span>
-  </div>
+  <div class="footer">Автор: Ситковский Арсений Михайлович, 2025 г. e-mail: omnistat@yandex.ru</div>
 </div>
 
-<!-- Либы -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- D3 + TopoJSON -->
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 <!-- Firebase (compat) -->
@@ -132,7 +124,6 @@
   const db = firebase.database();
 
   // ===== UI refs =====
-  const mapDiv = document.getElementById('map');
   const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
   const pick = document.createElement('canvas').getContext('2d');
   const trayCv = document.getElementById('tray'); const trayCtx = trayCv.getContext('2d');
@@ -145,6 +136,7 @@
   const fioEl = document.getElementById('fio');
   const groupEl = document.getElementById('group');
   const difEl = document.getElementById('difficulty');
+  const saveProfileBtn = document.getElementById('saveProfile');
 
   const lbTable = document.querySelector('#leaderboard tbody');
   const lbDiffEl = document.getElementById('lbDifficulty');
@@ -155,24 +147,16 @@
   const zoomInBtn = document.getElementById('zoomIn');
   const zoomOutBtn = document.getElementById('zoomOut');
 
-  // ===== Leaflet: без атрибуции внизу =====
-  const map = L.map('map', {
-    zoomControl: false,
-    attributionControl: false,     // ← отключено
-    worldCopyJump: true, inertia: true, zoomSnap: 0.25
-  });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18
-  }).addTo(map);
-
-  // DPI / Canvas
+  // ===== DPI / Canvas =====
+  let dpr = 1;
   function fitCanvas(){
-    const r = mapDiv.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = Math.max(1, Math.floor(r.width * dpr));
-    cv.height = Math.max(1, Math.floor(r.height * dpr));
+    const r = cv.getBoundingClientRect();
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.floor(r.width  * dpr));
+    const h = Math.max(1, Math.floor((r.height || 540) * dpr));
+    cv.width = w; cv.height = h;
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    pick.canvas.width = cv.width; pick.canvas.height = cv.height;
+    pick.canvas.width = w; pick.canvas.height = h;
     pick.setTransform(dpr,0,0,dpr,0,0);
 
     const tr = trayCv.getBoundingClientRect();
@@ -180,7 +164,7 @@
     trayCv.height= Math.max(1, Math.floor(tr.height* dpr));
     trayCtx.setTransform(dpr,0,0,dpr,0,0);
   }
-  fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); rebuildPaths(); drawTray(); });
+  fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); fitProjection(); rebuildGeometry(); drawTray(); drawAll(true); });
 
   // ===== Load TopoJSON =====
   const TOPO = 'Russian_regions_TopoJSON.topojson';
@@ -193,44 +177,56 @@
     statusEl.textContent = 'Карта не найдена'; statusEl.style.background = '#5b1020';
     console.error(e); return;
   }
-  const chosenKey = Object.keys(topo.objects||{}).map(k=>{
+  const chosen = Object.keys(topo.objects||{}).map(k=>{
     const g=topo.objects[k].geometries||[]; const n=g.length|0;
     const hasPoly=g.some(geom=>/Polygon/i.test(geom.type||'')); const score=(hasPoly?0:1000)+Math.abs(n-89);
     return {k,n,score};
   }).sort((a,b)=>a.score-b.score)[0].k;
 
-  const geo = topojson.feature(topo, topo.objects[chosenKey]);
+  const geo = topojson.feature(topo, topo.objects[chosen]);
   const features = geo.features;
 
-  // Fit bounds по РФ
-  const gb = d3.geoBounds(geo); // [[minLng,minLat],[maxLng,maxLat]]
-  map.fitBounds(L.latLngBounds([gb[0][1], gb[0][0]], [gb[1][1], gb[1][0]]), { padding:[10,10] });
+  // ===== Projection (no OSM) =====
+  let projection = d3.geoMercator().rotate([-105,0]);
+  let _offset = {x:10, y:10}; // padding со всех сторон
+  function fitProjection(){
+    const w = Math.floor(cv.width / dpr);
+    const h = Math.floor(cv.height/ dpr);
+    const pad = 10;
+    _offset = {x:pad, y:pad};
+    projection = d3.geoMercator().rotate([-105,0]).fitSize([w-2*pad, h-2*pad], geo);
+  }
+  fitProjection();
 
-  // ===== Проекция через Leaflet (в экранные px) =====
-  function project(lnglat){ const p = map.latLngToLayerPoint([lnglat[1], lnglat[0]]); return [p.x, p.y]; }
-
+  // ===== Build Path2D + targets =====
   function buildPath2D(f){
     const p = new Path2D();
     const g=f.geometry||{}, arr=(g.type==='Polygon')?[g.coordinates||[]]:(g.coordinates||[]);
     arr.forEach(rings=>{
       (rings||[]).forEach(ring=>{
-        ring.forEach((lnglat,idx)=>{
-          const pt=project(lnglat);
-          if(idx===0) p.moveTo(pt[0],pt[1]); else p.lineTo(pt[0],pt[1]);
+        let prev=null;
+        (ring||[]).forEach((lnglat,idx)=>{
+          const pt = projection(lnglat); if(!pt) return;
+          const x = pt[0]+_offset.x, y = pt[1]+_offset.y;
+          if(idx===0){ p.moveTo(x,y); prev=[x,y]; }
+          else if(!prev || Math.hypot(x-prev[0], y-prev[1])>0.8){ p.lineTo(x,y); prev=[x,y]; }
         });
         p.closePath();
       });
     });
     return p;
   }
-
   let paths = features.map(buildPath2D);
 
-  // центроиды в географических координатах → на экран при каждом кадре
-  const centroidsLL = features.map(f => d3.geoCentroid(f));
-  function centroidPX(i){ const ll=centroidsLL[i]; const pt=map.latLngToLayerPoint([ll[1], ll[0]]); return [pt.x, pt.y]; }
+  const gp = d3.geoPath(projection);
+  let targets = features.map(f=>{ const c=gp.centroid(f); return [c[0]+_offset.x, c[1]+_offset.y]; });
 
-  // Определяем поле с названием
+  function rebuildGeometry(){
+    paths = features.map(buildPath2D);
+    targets = features.map(f=>{ const c=gp.centroid(f); return [c[0]+_offset.x, c[1]+_offset.y]; });
+  }
+
+  // ===== Names =====
   const nameKey = (()=>{
     const freq={};
     for(const f of features){
@@ -248,62 +244,69 @@
   })();
   function subjName(i){ const p=features[i].properties||{}; return (nameKey&&p[nameKey])?String(p[nameKey]):`Субъект №${i+1}`; }
 
-  // ===== Игра =====
+  // ===== Game state =====
   const TOTAL = features.length;
   const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false }));
   let order = d3.shuffle(d3.range(TOTAL));
   let cursor = 0;
   let current = order[cursor];
-  let placed = 0; placedEl.textContent = `0 / ${TOTAL}`;
+  let currentTaken = false;         // деталь появляется на поле только после «Взять деталь»
+  let placed = 0; placedEl.textContent=`0 / ${TOTAL}`;
   let startAt=null, finished=false;
 
+  // ===== View transform (pan/zoom) =====
+  let view = { k: 1, x: 0, y: 0 };
+  const viewMin = 0.8, viewMax = 3.5;
+  function setScene(c){ c.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y); }
+  function screenToWorld(x,y){ return { x:(x - view.x)/view.k, y:(y - view.y)/view.k }; }
+
+  // ===== Rendering =====
   function drawTarget(){
-    // силуэт РФ (30%) + контур
-    ctx.save();
-    ctx.globalAlpha = 0.30; ctx.fillStyle = '#7aa2ff';
-    for(const path of paths) ctx.fill(path);
-    ctx.globalAlpha = 1; ctx.strokeStyle = '#25407a'; ctx.lineWidth = 1;
-    for(const path of paths) ctx.stroke(path);
+    ctx.save(); setScene(ctx);
+    // Непрозрачный силуэт РФ
+    for(const path of paths){ ctx.fillStyle='#152b55'; ctx.fill(path); }
+    ctx.strokeStyle='#25407a'; ctx.lineWidth=Math.max(1/view.k,0.6);
+    for(const path of paths){ ctx.stroke(path); }
     ctx.restore();
   }
   function drawPieces(){
+    ctx.save(); setScene(ctx);
     for(const p of pieces){
-      if(!p.locked && p.i !== current) continue;
-      const path = paths[p.i];
-      ctx.save();
-      ctx.translate(p.dx, p.dy);     // ← только смещение! без центроидов
+      if(!p.locked && (p.i!==current || !currentTaken)) continue;
+      ctx.save(); ctx.translate(p.dx,p.dy);
       ctx.fillStyle = p.locked ? '#00AEEF' : '#7cb8ff';
       ctx.globalAlpha = p.locked ? 0.98 : 0.92;
-      ctx.strokeStyle = '#0a2a4f'; ctx.lineWidth = 1;
-      ctx.fill(path); ctx.stroke(path);
+      ctx.strokeStyle = '#0a2a4f'; ctx.lineWidth = Math.max(0.8/view.k, 0.5);
+      ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]);
       ctx.restore();
     }
+    ctx.restore();
   }
   function buildPick(){
-    pick.clearRect(0,0,cv.width,cv.height);
-    const path = paths[current];
-    pick.save();
-    pick.translate(pieces[current].dx, pieces[current].dy);
-    pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
-    pick.fill(path); pick.stroke(path);
+    const w=Math.floor(cv.width/dpr), h=Math.floor(cv.height/dpr);
+    pick.save(); pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
+    pick.clearRect(0,0,w,h);
+    if(currentTaken){
+      const p = pieces[current];
+      pick.save(); pick.translate(p.dx,p.dy);
+      pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
+      pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
+      pick.restore();
+    }
     pick.restore();
   }
   function drawAll(rebuild=false){
-    ctx.setTransform(1,0,0,1,0,0);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cv.width,cv.height);
     drawTarget(); drawPieces();
     if(rebuild) buildPick();
   }
 
-  function rebuildPaths(){ paths = features.map(buildPath2D); drawAll(true); }
-  map.on('zoom move', rebuildPaths);
-  map.on('resize', ()=>{ fitCanvas(); rebuildPaths(); });
-
-  // Лоток (мини-превью)
+  // ===== Tray preview =====
   let trayProj = d3.geoMercator().rotate([-105,0]);
   function drawTray(){
     const g = {type:"FeatureCollection",features:[features[current]]};
-    const w = trayCv.width/(window.devicePixelRatio||1), h = trayCv.height/(window.devicePixelRatio||1);
+    const w = trayCv.width/dpr, h = trayCv.height/dpr;
     trayProj = d3.geoMercator().rotate([-105,0]).fitSize([w-20,h-20], g);
     trayCtx.setTransform(1,0,0,1,0,0);
     trayCtx.clearRect(0,0, trayCv.width, trayCv.height);
@@ -327,102 +330,96 @@
     currentNameEl.textContent = subjName(current);
   }
   document.getElementById('takePiece').onclick = ()=>{
-    // положить деталь к центру экрана
+    // помещаем деталь в центр экрана (в мировых координатах)
     const r = cv.getBoundingClientRect();
-    const [cx,cy] = centroidPX(current);
-    pieces[current].dx = r.width/2 - cx;
-    pieces[current].dy = r.height/2 - cy;
+    const center = screenToWorld(r.width/2, r.height/2);
+    const [tx,ty] = targets[current];
+    const p = pieces[current];
+    p.dx = center.x - tx; p.dy = center.y - ty;
+    currentTaken = true;
     drawAll(true);
   };
   trayCv.addEventListener('pointerdown', ()=> document.getElementById('takePiece').click());
 
-  function snapRadiusBy(diff){ return diff==='easy' ? 60 : (diff==='medium' ? 30 : 12); }
+  // ===== Difficulty → snap radius =====
+  function snapRadiusBy(diff){ return diff==='easy'?60:(diff==='medium'?30:12); }
 
-  // Перетаскивание / режим карты
+  // ===== Drag / Pan / Zoom =====
   let panMode=false, dragging=false, dragOff={x:0,y:0};
-  function setPanMode(on){
-    panMode = on;
-    panBtn.textContent = `Режим карты: ${on?'вкл':'выкл'}`;
-    if(on){ map.dragging.enable(); map.scrollWheelZoom.enable(); cv.style.pointerEvents='none'; }
-    else { map.dragging.disable(); map.scrollWheelZoom.disable(); cv.style.pointerEvents='auto'; }
-  }
-  setPanMode(false);
-  panBtn.onclick = ()=> setPanMode(!panMode);
-
+  panBtn.onclick = ()=>{
+    panMode=!panMode; panBtn.textContent = `Режим карты: ${panMode?'вкл':'выкл'}`;
+  };
   function pickAt(x,y){
-    const dpr = window.devicePixelRatio||1;
     const px=Math.max(0,Math.min(cv.width-1,Math.round(x*dpr)));
     const py=Math.max(0,Math.min(cv.height-1,Math.round(y*dpr)));
-    const d = pick.getImageData(px,py,1,1).data;
-    return d[3]>0;
+    const d=pick.getImageData(px,py,1,1).data; return d[3]>0;
   }
   cv.addEventListener('pointerdown', e=>{
-    if(panMode) return;
-    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-    if(!pickAt(x,y)) return;
-    dragging=true;
-    const p = pieces[current];
-    dragOff.x = x - (p.dx + centroidPX(current)[0]);
-    dragOff.y = y - (p.dy + centroidPX(current)[1]);
     cv.setPointerCapture(e.pointerId);
+    const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+    if(panMode){ dragging=true; dragOff={x:x-view.x, y:y-view.y}; return; }
+    if(!currentTaken || !pickAt(x,y)) return;
+    dragging=true;
+    const s=screenToWorld(x,y);
+    const [cx,cy]=targets[current];
+    const p=pieces[current];
+    dragOff={x: s.x-(cx+p.dx), y: s.y-(cy+p.dy)};
   });
   cv.addEventListener('pointermove', e=>{
-    if(!dragging || panMode) return;
+    if(!dragging) return;
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-    const c = centroidPX(current);
-    pieces[current].dx = x - dragOff.x - c[0];
-    pieces[current].dy = y - dragOff.y - c[1];
+    if(panMode){
+      view.x = x - dragOff.x; view.y = y - dragOff.y; drawAll(true); return;
+    }
+    const s=screenToWorld(x,y);
+    const [cx,cy]=targets[current];
+    const p=pieces[current];
+    p.dx=(s.x - dragOff.x) - cx;
+    p.dy=(s.y - dragOff.y) - cy;
     drawAll(false);
   });
   cv.addEventListener('pointerup', e=>{
+    if(!dragging) return; dragging=false; try{cv.releasePointerCapture(e.pointerId);}catch{}
     if(panMode) return;
-    if(!dragging) return;
-    dragging=false; try{cv.releasePointerCapture(e.pointerId);}catch{}
-    const p = pieces[current];
-    const dist = Math.hypot(p.dx, p.dy);
+    const p=pieces[current];
+    const dist=Math.hypot(p.dx,p.dy);
     if(dist < snapRadiusBy(difEl.value)){
       p.dx=0; p.dy=0;
       if(!p.locked){
-        p.locked=true; placed++; placedEl.textContent = `${placed} / ${TOTAL}`;
-        if(placed===1 && !startAt) startAt = performance.now();
-        if(placed>=TOTAL && !finished){
-          finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f';
-          persistResult();
-        }else{
-          do{ cursor++; } while(cursor<TOTAL && pieces[order[cursor]]?.locked);
-          if(cursor<TOTAL){ current=order[cursor]; drawTray(); }
-        }
+        p.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`;
+        if(placed===1 && !startAt) startAt=performance.now();
+        if(placed>=TOTAL && !finished){ finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.style.background='#0a3b2f'; persistResult(); }
+        else { do{ cursor++; }while(cursor<TOTAL && pieces[order[cursor]]?.locked); if(cursor<TOTAL){ current=order[cursor]; currentTaken=false; drawTray(); } }
       }
     }
     drawAll(true);
   });
   cv.addEventListener('pointercancel', ()=>{ dragging=false; });
 
-  zoomInBtn.onclick  = ()=> map.zoomIn(0.25);
-  zoomOutBtn.onclick = ()=> map.zoomOut(0.25);
+  function zoomAt(factor, cx, cy){
+    const old=view.k, k=Math.max(viewMin, Math.min(viewMax, old*factor)), f=k/old;
+    const w=screenToWorld(cx,cy);
+    view.k=k; view.x = cx - w.x*k; view.y = cy - w.y*k; drawAll(true);
+  }
+  zoomInBtn.onclick  = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1.2, r.width/2, r.height/2); };
+  zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
+  cv.addEventListener('wheel', (e)=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); zoomAt(e.deltaY<0?1.15:1/1.15, e.clientX-r.left, e.clientY-r.top); }, {passive:false});
 
-  // Профиль (локально)
-  try{
-    const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}');
-    if(saved.fio) fioEl.value=saved.fio; if(saved.group) groupEl.value=saved.group; if(saved.difficulty) difEl.value=saved.difficulty;
-  }catch{}
-  document.getElementById('saveProfile').onclick=()=>{
-    const prof={ fio:fioEl.value.trim(), group:groupEl.value.trim(), difficulty:difEl.value };
-    localStorage.setItem('puzzleProfile', JSON.stringify(prof));
-  };
+  // ===== Profile & controls =====
+  try{ const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}'); if(saved.fio) fioEl.value=saved.fio; if(saved.group) groupEl.value=saved.group; if(saved.difficulty) difEl.value=saved.difficulty; }catch{}
+  saveProfileBtn.onclick = ()=>{ const prof={ fio:fioEl.value.trim(), group:groupEl.value.trim(), difficulty:difEl.value }; localStorage.setItem('puzzleProfile', JSON.stringify(prof)); };
 
-  // Сброс/справка
   document.getElementById('reset').onclick = ()=>{
     placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00';
     for(const p of pieces){ p.locked=false; p.dx=0; p.dy=0; }
-    order=d3.shuffle(d3.range(TOTAL)); cursor=0; current=order[cursor];
-    drawTray(); drawAll(true);
+    order=d3.shuffle(d3.range(TOTAL)); cursor=0; current=order[cursor]; currentTaken=false;
+    view={k:1,x:0,y:0}; fitProjection(); rebuildGeometry(); drawTray(); drawAll(true);
   };
   document.getElementById('help').onclick = ()=>{
-    alert('Правила:\n• Укажите ФИО и номер группы, выберите сложность.\n• В «лотке» нажмите «Взять деталь» и перетащите её на карту.\n• «Режим карты» включает/выключает панорамирование и масштаб подложки OSM.\n• Поставленные субъекты подсвечиваются ярко-сине-голубым (#00AEEF). По одному за раз.\n• По завершении результат сохранится в таблицу лидеров (Firebase) и будет доступен как CSV.');
+    alert('Правила:\n• Укажите ФИО и номер группы, выберите сложность.\n• Нажмите «Взять деталь» в лотке и перетащите её на карту.\n• «Режим карты» включает панорамирование/масштабирование холста; выключите, чтобы снова тянуть деталь.\n• Поставленные субъекты подсвечиваются ярко-сине-голубым (#00AEEF). По одному за раз.\n• По завершении результат сохраняется в таблицу лидеров (Firebase) и доступен в CSV.');
   };
 
-  // ===== Leaderboard =====
+  // ===== Leaderboard / CSV =====
   function msToMMSS(ms){ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
   function labelDifficulty(d){ return d==='easy'?'Лёгкая':(d==='medium'?'Средняя':'Сложная'); }
   function q(s){ s=String(s||''); return `"${s.replace(/"/g,'""')}"`; }
@@ -440,19 +437,14 @@
     const rows = Array.from(byFio.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
     lbTable.innerHTML = rows.map((r,i)=>`<tr><td>${i+1}</td><td>${(r.fio||'')}</td><td>${(r.group||'')}</td><td>${labelDifficulty(r.difficulty)}</td><td>${msToMMSS(r.time_ms||0)}</td><td>${new Date(r.timestamp||Date.now()).toLocaleString()}</td></tr>`).join('');
     exportBtn.onclick = ()=>{
-      const hdr = ['rank','fio','group','difficulty','time_mmss','time_ms','timestamp'];
-      const lines = [hdr.join(',')].concat(rows.map((r,i)=>[
-        i+1, q(r.fio), q(r.group), r.difficulty, msToMMSS(r.time_ms||0), r.time_ms||0, new Date(r.timestamp||Date.now()).toISOString()
-      ].join(',')));
-      const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
-      const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='puzzle_results.csv'; a.click();
-      setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+      const hdr=['rank','fio','group','difficulty','time_mmss','time_ms','timestamp'];
+      const lines=[hdr.join(',')].concat(rows.map((r,i)=>[i+1,q(r.fio),q(r.group),r.difficulty,msToMMSS(r.time_ms||0),r.time_ms||0,new Date(r.timestamp||Date.now()).toISOString()].join(',')));
+      const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='puzzle_results.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     };
   }
   const resultsRef = db.ref('results');
   resultsRef.on('value', snap=>{
-    const val = snap.val()||{};
-    const all = Object.keys(val).map(k=>val[k]).filter(Boolean);
+    const val = snap.val()||{}; const all = Object.keys(val).map(k=>val[k]).filter(Boolean);
     renderLeaderboard(all);
   });
 
@@ -469,7 +461,7 @@
     db.ref('results').push(payload).catch(err=>console.error('DB write error:', err));
   }
 
-  // Старт
+  // ===== Start =====
   statusEl.textContent='Карта загружена';
   drawTray(); drawAll(true);
 })();
