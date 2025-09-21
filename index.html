@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Собери карту России — одиночный режим</title>
+  <style>
+    /* Простой тёмный интерфейс без Firebase. Загрузка лёгкая и быстрая. */
+    :root { --bg:#0d1427; --panel:#131c33; --highlight:#62d5c9; --text:#dce4f4; --muted:#8fa5c5; }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; }
+    .wrapper { max-width:1200px; margin:0 auto; padding:12px; }
+    .card { background:var(--panel); border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,0.35); padding:16px; margin-bottom:12px; }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .controls { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+    .pill { display:inline-flex; align-items:center; gap:6px; background:#0a1329; border:1px solid #253b69; border-radius:999px; padding:6px 10px; font-size:13px; color:var(--muted); }
+    button { background:var(--highlight); border:0; border-radius:10px; padding:10px 14px; font-weight:600; cursor:pointer; color:#03141d; }
+    #stage { width:100%; height:68vh; min-height:460px; background:#0a1324; border:1px solid #24365a; border-radius:12px; position:relative; overflow:hidden; }
+    #board { position:absolute; inset:0; }
+    #tray { position:absolute; top:8px; right:8px; width:min(42%,420px); max-width:46%; height:calc(100% - 16px); overflow:auto; background:rgba(10,19,36,0.65); border:1px solid #273b6f; border-radius:12px; padding:8px; }
+    #tray h3 { margin:0 0 6px; font-size:15px; color:var(--text); }
+    #tray .note { font-size:12px; color:var(--muted); margin-bottom:6px; }
+    #leader { display:none; }
+    svg { touch-action:none; }
+    /* Удаляем drop‑shadow у фрагментов, чтобы не создавать невидимую рамку и улучшить производительность. */
+    .piece { cursor: grab; }
+    .piece:active { cursor: grabbing; }
+    .ghosted { opacity:0.3; }
+    .target { fill:#1c2f59; stroke:#254083; stroke-width:0.7; }
+    .hint { position:absolute; left:8px; bottom:8px; font-size:11px; color:var(--muted); }
+    #info { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+    #info .pill strong { color:var(--highlight); }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="card">
+    <h1>Онлайн‑пазл: «Собери карту России» (одиночный режим)</h1>
+    <p class="muted" style="margin:0 0 10px; font-size:14px;">Перетащите все субъекты Российской Федерации на правильные места. Время будет засекаться автоматически при установке первой детали. Мультиплеер убран для увеличения производительности — каждый студент играет отдельно.</p>
+    <div id="info">
+      <span class="pill">Поставлено: <strong id="placedLabel">0 / 89</strong></span>
+      <span class="pill">Время: <strong id="timeLabel">00:00</strong></span>
+      <button id="resetBtn">Сбросить</button>
+    </div>
+  </div>
+  <div class="card" style="position:relative;">
+    <div id="stage">
+      <svg id="board"></svg>
+      <div id="tray" class="card">
+        <h3>Детали пазла</h3>
+        <div class="note">Случайно расположенные регионы. Перетащите их на карту. Совпадение определяется по центроиду — деталь «примагнитится» при верном положении.</div>
+        <div id="trayPieces"></div>
+      </div>
+      <div class="hint">Совет: увеличивайте карту двумя пальцами для точного позиционирования.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Зависимости: D3 и TopoJSON -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<script>
+// Одиночный пазл: нет Firebase, только локальное время и счётчик.
+const TOPO_URL = 'Russian_regions_TopoJSON.topojson';
+const TOTAL = 89;
+
+// Элементы интерфейса
+const boardEl = d3.select('#board');
+const placedLabel = document.getElementById('placedLabel');
+const timeLabel = document.getElementById('timeLabel');
+const resetBtn = document.getElementById('resetBtn');
+
+// Состояние игрока
+let state = { placed: 0, startAt: null, finished: false, timeMs: 0 };
+
+// Переменные для карты
+let features, projection, path, width, height, gBoard, gPieces;
+
+// Запустить игру
+loadMap();
+
+resetBtn.addEventListener('click', () => { location.reload(); });
+
+function fmt(ms) {
+  const secs = Math.floor(ms / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function tickTimer() {
+  if (state.finished || !state.startAt) return;
+  state.timeMs = Date.now() - state.startAt;
+  timeLabel.textContent = fmt(state.timeMs);
+  requestAnimationFrame(tickTimer);
+}
+
+async function loadMap() {
+  // Загрузить TopoJSON
+  const topo = await d3.json(TOPO_URL);
+  const objKey = Object.keys(topo.objects)[0];
+  const geo = topojson.feature(topo, topo.objects[objKey]);
+  features = geo.features;
+  if (features.length !== TOTAL) {
+    console.warn('Ожидается', TOTAL, 'регионов, получено', features.length);
+  }
+
+  // Установить размеры и проекцию
+  resize();
+  window.addEventListener('resize', resize);
+}
+
+function resize() {
+  const stage = document.getElementById('stage').getBoundingClientRect();
+  width = stage.width; height = stage.height;
+  boardEl.attr('width', width).attr('height', height);
+  boardEl.selectAll('*').remove();
+  gBoard = boardEl.append('g');
+  gPieces = boardEl.append('g');
+
+  projection = d3.geoMercator();
+  path = d3.geoPath(projection);
+  // 56% ширины под карту (место справа под трей)
+  const fitW = width * 0.56;
+  const fitH = height - 16;
+  projection.fitSize([fitW, fitH], { type: 'FeatureCollection', features });
+  // отступ
+  const dx = 8; const dy = 8;
+  gBoard.attr('transform', `translate(${dx},${dy})`);
+
+  // Рисуем цель
+  gBoard.selectAll('path.target')
+    .data(features)
+    .join('path')
+    .attr('class', 'target')
+    .attr('d', path);
+
+  // Создаём детали
+  drawPieces();
+}
+
+function drawPieces() {
+  gPieces.selectAll('*').remove();
+  const shuffled = d3.shuffle(features.slice());
+  // Отрисовка деталей
+  gPieces.selectAll('path.piece')
+    .data(shuffled)
+    .enter().append('path')
+    .attr('class', 'piece')
+    .attr('d', d => path(d))
+    // Цвет детали чуть более приглушённый для лучшей читаемости
+    .attr('fill', '#6fa8dc')
+    .attr('fill-opacity', 0.8)
+    .attr('stroke', '#083d77')
+    .attr('stroke-width', 0.8)
+    .style('pointer-events', 'visiblePainted')
+    .each(function(d) {
+      // Положение в трее: используем bounds из d3.geoPath.bounds
+      const bounds = path.bounds(d);
+      const x0 = bounds[0][0];
+      const y0 = bounds[0][1];
+      const x1 = bounds[1][0];
+      const y1 = bounds[1][1];
+      const pieceW = x1 - x0;
+      const pieceH = y1 - y0;
+      const randX = width * 0.60 + Math.random() * (width * 0.36 - pieceW - 24);
+      const randY = 20 + Math.random() * (height - pieceH - 40);
+      d._pos = { x: randX, y: randY };
+      d._placed = false;
+      d3.select(this).attr('transform', `translate(${randX - x0}, ${randY - y0})`);
+    })
+    .call(d3.drag()
+      .on('start', dragStarted)
+      .on('drag', dragging)
+      .on('end', dragEnded)
+    );
+}
+
+function dragStarted(event, d) {
+  d3.select(this).raise().attr('opacity', 0.8);
+}
+
+function dragging(event, d) {
+  d3.select(this).attr('transform', `translate(${event.x}, ${event.y})`);
+}
+
+function dragEnded(event, d) {
+  d3.select(this).attr('opacity', 1);
+  // Центроид (с учётом сдвига карты)
+  const centroid = path.centroid(d);
+  const targetX = centroid[0] + 8;
+  const targetY = centroid[1] + 8;
+  const dist = Math.hypot(event.x - targetX, event.y - targetY);
+  // Порог для магнитного притяжения
+  if (dist < 28) {
+    const b = d3.select(this).node().getBBox();
+    const offX = targetX - b.x;
+    const offY = targetY - b.y;
+    d3.select(this)
+      .attr('transform', `translate(${offX}, ${offY})`)
+      .classed('ghosted', true)
+      .style('pointer-events', 'none');
+    d._placed = true;
+    state.placed += 1;
+    placedLabel.textContent = `${state.placed} / ${TOTAL}`;
+    if (state.placed === 1 && !state.startAt) {
+      state.startAt = Date.now();
+      tickTimer();
+    }
+    if (state.placed >= TOTAL && !state.finished) {
+      state.finished = true;
+      state.timeMs = Date.now() - state.startAt;
+      timeLabel.textContent = fmt(state.timeMs);
+      setTimeout(() => alert(`Пазл собран! Ваше время: ${fmt(state.timeMs)}`), 50);
+    }
+  } else {
+    // Вернуть в исходную точку
+    const b = d3.select(this).node().getBBox();
+    const offX = d._pos.x - b.x;
+    const offY = d._pos.y - b.y;
+    d3.select(this).attr('transform', `translate(${offX}, ${offY})`);
+  }
+}
+</script>
+</body>
+</html>
