@@ -139,7 +139,12 @@
     pick.setTransform(dpr,0,0,dpr,0,0);
   }
   fitCanvas();
-  window.addEventListener('resize', ()=>{ fitCanvas(); fitProjection(); rebuildGeometry(); fitView(); forceSpawn(); drawAll(true); });
+  window.addEventListener('resize', ()=>{
+    fitCanvas(); fitProjection(); rebuildGeometry(); fitView();
+    // при ресайзе текущую деталь заново «заспавнить»
+    pieces[current].spawned = false;
+    drawAll(true);
+  });
 
   // ===== Load TopoJSON =====
   const TOPO = 'Russian_regions_TopoJSON.topojson';
@@ -170,7 +175,7 @@
   }
   fitProjection();
 
-  // ===== Paths & "anchors" (bbox-центр вместо центроида) =====
+  // ===== Paths & anchors (центр bbox в экранных px + _pad) =====
   function buildPath2D(f){
     const p = new Path2D();
     const g=f.geometry||{}, arr=(g.type==='Polygon')?[g.coordinates||[]]:(g.coordinates||[]);
@@ -189,27 +194,17 @@
     return p;
   }
   let paths = features.map(buildPath2D);
-
   const gp = d3.geoPath(projection);
-  // якорные точки = центр экранного bbox (устойчиво для мультиполигонов)
-  let anchors = features.map(f=>{
-    const b = gp.bounds(f); // [[minx,miny],[maxx,maxy]] — уже в экранных px (без _pad)
-    const ax = (b[0][0] + b[1][0])/2 + _pad;
-    const ay = (b[0][1] + b[1][1])/2 + _pad;
-    return [ax, ay];
-  });
+  let anchors = features.map(f=>{ const b=gp.bounds(f); return [(b[0][0]+b[1][0])/2 + _pad, (b[0][1]+b[1][1])/2 + _pad]; });
 
   function rebuildGeometry(){
     paths = features.map(buildPath2D);
-    anchors = features.map(f=>{
-      const b = gp.bounds(f);
-      return [(b[0][0]+b[1][0])/2 + _pad, (b[0][1]+b[1][1])/2 + _pad];
-    });
+    anchors = features.map(f=>{ const b=gp.bounds(f); return [(b[0][0]+b[1][0])/2 + _pad, (b[0][1]+b[1][1])/2 + _pad]; });
   }
 
-  // ===== Авто-вписывание + стартовая полоса =====
-  const SPAWN = { height: 118, margin: 8, pad: 8 };
-  let view = { k: 1, x: 0, y: 0 };
+  // ===== Авто-вписывание + нижняя стартовая полоса =====
+  const SPAWN = { height:118, margin:8, pad:8 };
+  let view = { k:1, x:0, y:0 };
   const viewMin = 0.8, viewMax = 3.5;
 
   function worldBounds(){
@@ -247,9 +242,13 @@
   function setScene(c){ c.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y); }
   function screenToWorld(x,y){ return { x:(x - view.x)/view.k, y:(y - view.y)/view.k }; }
 
+  // ===== Названия =====
+  const nameKey = (()=>{ const freq={}; for(const f of features){ for(const k in (f.properties||{})){ const v=f.properties[k]; if(typeof v==='string' && v.length>=3){ freq[k]=(freq[k]||0)+(/[\u0400-\u04FF]/.test(v)?2:1); if(/name/i.test(k)) freq[k]+=2; if(/subj|region|обла|край|респ|город/i.test(k)) freq[k]+=1; } } } const arr=Object.entries(freq).sort((a,b)=>b[1]-a[1]); return arr.length?arr[0][0]:null; })();
+  function getName(i){ const p=features[i].properties||{}; return (nameKey&&p[nameKey])?String(p[nameKey]):`Субъект РФ №${i+1}`; }
+
   // ===== Состояние игры =====
   const TOTAL = features.length;
-  const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false }));
+  const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false, spawned:false }));
   let order = d3.shuffle(d3.range(TOTAL));
   let cursor = 0;
   let current = order[cursor];
@@ -257,23 +256,19 @@
   let startAt=null, finished=false;
   let difficultyLocked=false;
 
-  // ===== Стартовая полоса + принудительный спавн (всегда!) =====
+  // ===== Стартовая полоса и вычисление смещения в неё =====
   function spawnRect(){ const r=cv.getBoundingClientRect(); return { x: SPAWN.pad, y: r.height - SPAWN.height - SPAWN.margin, w: r.width - 2*SPAWN.pad, h: SPAWN.height }; }
   function spawnPoint(){ const sr=spawnRect(); return { x: sr.x + sr.w*0.5, y: sr.y + sr.h*0.5 }; }
-
-  function forceSpawn(){
+  function spawnOffsetsFor(i){
     const sp = spawnPoint();
     const w = screenToWorld(sp.x, sp.y);
-    const [ax,ay] = anchors[current];    // центр bbox детали в мировых координатах цели
-    const p = pieces[current];
-    p.locked = false;
-    p.dx = w.x - ax;                      // сдвиг так, чтобы центр bbox лёг в центр полосы
-    p.dy = w.y - ay;
+    const [ax,ay] = anchors[i];
+    return { dx: w.x - ax, dy: w.y - ay };
   }
 
   function setCurrent(i){
     current = i;
-    forceSpawn();                         // жёстко в стартовую полосу
+    pieces[current].spawned = false;   // новая деталь обязана появиться в полосе
     drawAll(true);
   }
 
@@ -287,13 +282,23 @@
   }
   function drawPieces(){
     ctx.save(); setScene(ctx);
-    // 1) все закреплённые (фон)
-    for(const p of pieces){ if(p.locked){ ctx.save(); ctx.translate(p.dx,p.dy); ctx.fillStyle='#00AEEF'; ctx.globalAlpha=0.98; ctx.strokeStyle='#0a2a4f'; ctx.lineWidth=Math.max(0.8/view.k,0.5); ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]); ctx.restore(); } }
-    // 2) текущая незакреплённая — НАВЕРХУ
+    // закреплённые (фон)
+    for(const p of pieces){
+      if(!p.locked) continue;
+      ctx.save(); ctx.translate(p.dx,p.dy);
+      ctx.fillStyle='#00AEEF'; ctx.globalAlpha=0.98; ctx.strokeStyle='#0a2a4f'; ctx.lineWidth=Math.max(0.8/view.k,0.5);
+      ctx.fill(paths[p.i]); ctx.stroke(paths[p.i]);
+      ctx.restore();
+    }
+    // текущая незакреплённая — сверху
     const pc = pieces[current];
-    ctx.save(); ctx.translate(pc.dx,pc.dy);
-    ctx.fillStyle='#7cb8ff'; ctx.globalAlpha=0.95; ctx.strokeStyle='#0a2a4f'; ctx.lineWidth=Math.max(0.8/view.k,0.5);
-    ctx.fill(paths[pc.i]); ctx.stroke(paths[pc.i]); ctx.restore();
+    if(!pc.locked){
+      if(!pc.spawned){ const off = spawnOffsetsFor(current); pc.dx=off.dx; pc.dy=off.dy; pc.spawned=true; }
+      ctx.save(); ctx.translate(pc.dx,pc.dy);
+      ctx.fillStyle='#7cb8ff'; ctx.globalAlpha=0.95; ctx.strokeStyle='#0a2a4f'; ctx.lineWidth=Math.max(0.8/view.k,0.5);
+      ctx.fill(paths[pc.i]); ctx.stroke(paths[pc.i]);
+      ctx.restore();
+    }
     ctx.restore();
   }
   function drawSpawnOverlay(){
@@ -313,10 +318,16 @@
     pick.save(); pick.setTransform(dpr*view.k,0,0,dpr*view.k, dpr*view.x, dpr*view.y);
     pick.clearRect(0,0,cv.width,cv.height);
     const p = pieces[current];
-    pick.save(); pick.translate(p.dx,p.dy);
-    pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
-    pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
-    pick.restore(); pick.restore();
+    if(!p.locked){
+      // гарантированно рисуем там же, где на основном холсте
+      const dx = p.spawned ? p.dx : spawnOffsetsFor(current).dx;
+      const dy = p.spawned ? p.dy : spawnOffsetsFor(current).dy;
+      pick.save(); pick.translate(dx,dy);
+      pick.fillStyle='rgb(10,10,1)'; pick.strokeStyle=pick.fillStyle;
+      pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
+      pick.restore();
+    }
+    pick.restore();
   }
   function drawAll(rebuild=false){
     ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -325,20 +336,11 @@
     if(rebuild) buildPick();
   }
 
-  // ===== Имена =====
-  const nameKey = (()=>{ const freq={}; for(const f of features){ for(const k in (f.properties||{})){ const v=f.properties[k]; if(typeof v==='string' && v.length>=3){ freq[k]=(freq[k]||0)+(/[\u0400-\u04FF]/.test(v)?2:1); if(/name/i.test(k)) freq[k]+=2; if(/subj|region|обла|край|респ|город/i.test(k)) freq[k]+=1; } } } const arr=Object.entries(freq).sort((a,b)=>b[1]-a[1]); return arr.length?arr[0][0]:null; })();
-  function getName(i){ const p=features[i].properties||{}; return (nameKey&&p[nameKey])?String(p[nameKey]):`Субъект РФ №${i+1}`; }
-
-  // ===== Таймер (кэп 59:59 на отображении) =====
-  function fmt(ms){
-    const CAP = (59*60 + 59) * 1000;      // 59:59
-    const t = Math.min(ms, CAP);
-    const s = Math.floor(t/1000), m = Math.floor(s/60), ss = String(s%60).padStart(2,'0');
-    return `${String(m).padStart(2,'0')}:${ss}`;
-  }
+  // ===== Таймер (кэп 59:59 на показе) =====
+  function fmt(ms){ const CAP=(59*60+59)*1000; const t=Math.min(ms,CAP); const s=Math.floor(t/1000), m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}` }
   (function tick(){ if(!finished && startAt){ timeEl.textContent = fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
 
-  // ===== Сложность и блокировка после 1-й постановки =====
+  // ===== Сложность и блокировка после первой постановки =====
   function snapRadiusBy(diff){ return diff==='easy'?60:(diff==='medium'?30:12); }
   difEl.addEventListener('change',()=>{ if(difficultyLocked){ alert('Сложность нельзя менять после установки первой детали. Нажмите «Сбросить» для новой игры.'); } });
 
@@ -356,14 +358,13 @@
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
     const onPiece = pickAt(x,y) || inSpawnZone(x,y);
     if(onPiece){
-      // если кликнули в полосе — гарантированно вернуть в центр полосы и сразу тащить
-      if(inSpawnZone(x,y)) forceSpawn();
+      // если кликнули в полосе — гарантируем спавн и сразу тянем
+      if(inSpawnZone(x,y)){ const off=spawnOffsetsFor(current); const p=pieces[current]; p.dx=off.dx; p.dy=off.dy; p.spawned=true; buildPick(); }
       draggingPiece=true;
       const s=screenToWorld(x,y);
       const [ax,ay]=anchors[current];
       const p=pieces[current];
       dragOff={x: s.x-(ax+p.dx), y: s.y-(ay+p.dy)};
-      buildPick();
     }else{
       draggingPan=true; panOff={x:x - view.x, y:y - view.y};
     }
@@ -416,10 +417,10 @@
   zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
 
   // ===== Кнопки =====
-  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижней пунктирной полосы на карту.\n• Масштаб/перемещение доступны всегда: колесо/щипок и перетаскивание фона.\n• Как только ставите первую деталь, сложность фиксируется до «Сбросить».\n• «Вернуть деталь» — принудительно помещает текущую незакреплённую деталь в стартовую полосу.\n• «Центрировать карту» — исходный вид.');
+  helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижней пунктирной полосы на карту.\n• Масштаб/перемещение доступны всегда: колесо/щипок и перетаскивание фона.\n• Как только ставите первую деталь, сложность фиксируется до «Сбросить».\n• «Вернуть деталь» — помещает текущую незакреплённую деталь в стартовую полосу.\n• «Центрировать карту» — исходный вид.');
 
-  returnBtn.onclick = ()=>{ if(!pieces[current].locked){ forceSpawn(); drawAll(true); } };
-  centerBtn.onclick  = ()=>{ fitView(); forceSpawn(); drawAll(true); };
+  returnBtn.onclick = ()=>{ const p=pieces[current]; if(!p.locked){ p.spawned=false; drawAll(true); } };
+  centerBtn.onclick  = ()=>{ fitView(); pieces[current].spawned=false; drawAll(true); };
 
   // ===== Профиль, сброс =====
   try{ const saved=JSON.parse(localStorage.getItem('puzzleProfile')||'{}'); if(saved.fio) fioEl.value=saved.fio; if(saved.group) groupEl.value=saved.group; if(saved.difficulty) difEl.value=saved.difficulty; }catch{}
@@ -427,7 +428,7 @@
 
   document.getElementById('reset').onclick = ()=>{
     placed=0; placedEl.textContent=`0 / ${TOTAL}`; startAt=null; finished=false; timeEl.textContent='00:00';
-    for(const p of pieces){ p.locked=false; p.dx=0; p.dy=0; }
+    for(const p of pieces){ p.locked=false; p.dx=0; p.dy=0; p.spawned=false; }
     order=d3.shuffle(d3.range(TOTAL)); cursor=0; difficultyLocked=false; difEl.disabled=false;
     fitProjection(); rebuildGeometry(); fitView(); setCurrent(order[cursor]); drawAll(true);
   };
@@ -435,7 +436,6 @@
   // ===== Лидерборд / CSV =====
   function msToMMSS(ms){ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
   function q(s){ s=String(s||''); return `"${s.replace(/"/g,'""')}"`; }
-
   function renderLeaderboard(all){
     const diff = lbDiffEl.value, gflt = lbGroupEl.value.trim().toLowerCase();
     const byFio = new Map();
