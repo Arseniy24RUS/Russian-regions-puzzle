@@ -177,5 +177,3 @@ fio,group,difficulty,time_mmss,time_ms,timestamp_iso,user_agent
 Автор: **Ситковский Арсений Михайлович**  
 Контакты: `omnistat@yandex.ru`  
 Год: **2025**
-
-Лицензия: MIT (опционально добавьте файл LICENSE).
