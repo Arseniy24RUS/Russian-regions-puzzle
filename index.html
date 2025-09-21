@@ -7,17 +7,17 @@
   <style>
     :root{ --bg:#0d1427; --panel:#111a2e; --muted:#a9b7d6; --ok:#34d399; --warn:#fbbf24; --err:#ef4444 }
     html,body{height:100%;margin:0;background:var(--bg);color:#e7eeff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-    *{ box-sizing:border-box; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent }
-    .wrap{ max-width:1200px; margin:0 auto; padding:10px }
-    .card{ background:var(--panel); border:1px solid #1d2745; border-radius:14px; padding:12px; box-shadow:0 8px 20px rgba(0,0,0,.25) }
-    h1{ font-size:18px; margin:0 0 8px }
-    .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-    .pill{ display:inline-flex; align-items:center; gap:6px; background:#0f1733; border:1px solid #223062; border-radius:999px; padding:6px 10px; font-size:12px; color:#cfe0ff }
-    .btn{ background:#0f1733; border:1px solid #223062; color:#e7eeff; padding:8px 12px; border-radius:10px; cursor:pointer }
-    canvas{ width:100%; height:68vh; min-height:460px; background:#0a1127; border:1px solid #1d2747; border-radius:12px; display:block; touch-action:none }
-    .small{ font-size:12px } .muted{ color:#a9b7d6 }
-    .log{ font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0e1430; border:1px solid #23305b; border-radius:8px; padding:8px; max-height:220px; overflow:auto; white-space:pre-wrap }
-    .ok{ color:var(--ok) } .warn{ color:var(--warn) } .err{ color:var(--err) }
+    *{box-sizing:border-box;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+    .wrap{max-width:1200px;margin:0 auto;padding:10px}
+    .card{background:var(--panel);border:1px solid #1d2745;border-radius:14px;padding:12px;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+    h1{font-size:18px;margin:0 0 8px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:#0f1733;border:1px solid #223062;border-radius:999px;padding:6px 10px;font-size:12px;color:#cfe0ff}
+    .btn{background:#0f1733;border:1px solid #223062;color:#e7eeff;padding:8px 12px;border-radius:10px;cursor:pointer}
+    canvas{width:100%;height:68vh;min-height:460px;background:#0a1127;border:1px solid #1d2747;border-radius:12px;display:block;touch-action:none}
+    .small{font-size:12px}.muted{color:#a9b7d6}
+    .log{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0e1430;border:1px solid #23305b;border-radius:8px;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap}
+    .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
   </style>
 </head>
 <body>
@@ -38,7 +38,7 @@
   <div style="display:grid;grid-template-columns:1fr .45fr;gap:10px;margin-top:10px">
     <div class="card">
       <canvas id="cv" width="1000" height="640"></canvas>
-      <div class="row muted small" style="margin-top:6px; justify-content:space-between">
+      <div class="row muted small" style="margin-top:6px;justify-content:space-between">
         <span>Перетаскивайте регионы. При попадании в радиус снапа деталь «прилипает».</span>
         <span id="status" class="pill">Загрузка карты…</span>
       </div>
@@ -54,8 +54,8 @@
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
 <script>
 (async function(){
-  const TOPO_NAME = 'Russian_regions_TopoJSON.topojson';
-  const TOPO_URL = TOPO_NAME + '?v=' + Date.now(); // анти-кэш
+  const TOPO = 'Russian_regions_TopoJSON.topojson';
+  const URL  = TOPO + '?v=' + Date.now();
   const TOTAL = 89, SNAP = 20;
 
   const cv = document.getElementById('cv');
@@ -67,81 +67,77 @@
   const statusEl = document.getElementById('status');
   const logEl = document.getElementById('diag');
 
-  function log(msg, cls){ const d=document.createElement('div'); if(cls) d.className=cls; d.textContent=msg; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+  function log(m,c){ const d=document.createElement('div'); if(c) d.className=c; d.textContent=m; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
 
   snapEl.textContent = SNAP + ' px';
 
-  // === DPI-адаптация (важно для правильной отрисовки и «пика»)
+  // --- DPI/размеры строго согласованы и кратны целому ---
   let dpr = 1;
   function fitCanvas(){
     const r = cv.getBoundingClientRect();
     dpr = Math.min(2, window.devicePixelRatio || 1);
-    cv.width = Math.round(r.width * dpr);
-    cv.height = Math.round((r.height||480) * dpr);
+    const w = Math.max(1, Math.floor(r.width  * dpr));
+    const h = Math.max(1, Math.floor((r.height || 480) * dpr));
+    cv.width = w; cv.height = h;
     ctx.setTransform(dpr,0,0,dpr,0,0);
 
-    pick.canvas.width = cv.width;
-    pick.canvas.height = cv.height;
-    pick.setTransform(dpr,0,0,dpr,0,0);    // ← синхронизация с основным холстом
+    pick.canvas.width = w; pick.canvas.height = h;
+    pick.setTransform(dpr,0,0,dpr,0,0);
   }
-  fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); drawAll(true); });
+  fitCanvas(); window.addEventListener('resize', ()=>{ fitCanvas(); if(drawAll) drawAll(true); });
 
-  // === Проверка доступности и загрузка карты
+  // --- Загрузка TopoJSON ---
   try{
-    const head = await fetch(TOPO_URL, { method:'HEAD', cache:'no-store' });
-    if(head.ok) log(`HEAD ${TOPO_NAME}: OK (HTTP ${head.status})`, 'ok');
-    else log(`HEAD ${TOPO_NAME}: HTTP ${head.status} — продолжим с GET`, 'warn');
-  }catch(e){ log(`HEAD ${TOPO_NAME}: исключение (некритично): ${e}`, 'warn'); }
+    const head = await fetch(URL, {method:'HEAD',cache:'no-store'});
+    if(head.ok) log(`HEAD ${TOPO}: OK (${head.status})`, 'ok');
+    else log(`HEAD ${TOPO}: HTTP ${head.status} — продолжим с GET`, 'warn');
+  }catch(e){ log(`HEAD ${TOPO}: исключение (допустимо): ${e}`, 'warn'); }
 
   let topo;
   try{
-    const res = await fetch(TOPO_URL, { cache:'no-store' });
-    if(!res.ok){ log(`GET ${TOPO_NAME}: HTTP ${res.status}`, 'err'); statusEl.textContent='Карта не найдена'; statusEl.classList.add('err'); return; }
-    const text = await res.text();
-    topo = JSON.parse(text);
-  }catch(e){
-    log('Ошибка чтения/парсинга TopoJSON: '+e, 'err');
-    statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return;
-  }
+    const res = await fetch(URL, {cache:'no-store'});
+    if(!res.ok){ log(`GET ${TOPO}: HTTP ${res.status}`, 'err'); statusEl.textContent='Карта не найдена'; statusEl.classList.add('err'); return; }
+    topo = await res.json();
+  }catch(e){ log('Ошибка чтения/парсинга TopoJSON: '+e, 'err'); statusEl.textContent='Формат карты неверен'; statusEl.classList.add('err'); return; }
 
   if(!topo || topo.type!=='Topology' || !topo.objects){
     log('Неверная структура TopoJSON (нет type="Topology" или objects)', 'err');
-    statusEl.textContent = 'Формат карты неверен'; statusEl.classList.add('err'); return;
+    statusEl.textContent='Формат карты неверен'; statusEl.classList.add('err'); return;
   }
 
-  // === Выбираем объект с полигонами, близкий к 89
   const keys = Object.keys(topo.objects);
   log(`Найдено topo.objects: [${keys.join(', ')}]`);
-  const scored = keys.map(k=>{
-    const g = topo.objects[k].geometries || [];
+  const chosen = keys.map(k=>{
+    const g = topo.objects[k].geometries||[];
     const n = g.length|0;
     const hasPoly = g.some(geom => /Polygon/i.test(geom.type||''));
     const score = (hasPoly?0:1000) + Math.abs(n - TOTAL);
     return {k,n,hasPoly,score};
-  }).sort((a,b)=>a.score-b.score);
-  const chosen = scored[0];
+  }).sort((a,b)=>a.score-b.score)[0];
   log(`Выбран объект: ${chosen.k} (геометрий: ${chosen.n}, полигоны: ${chosen.hasPoly?'да':'нет'})`, 'ok');
 
-  let geo;
-  try{ geo = topojson.feature(topo, topo.objects[chosen.k]); }
+  let geo; try{ geo = topojson.feature(topo, topo.objects[chosen.k]); }
   catch(e){ log('topojson.feature: '+e, 'err'); statusEl.textContent='Ошибка разборки TopoJSON'; statusEl.classList.add('err'); return; }
 
   const features = geo.features;
-  log(`features: ${features.length} (ожидаем ~89)`);
+  log(`features: ${features.length} (ожидаем ~89)`, features.length===TOTAL?'ok':'warn');
 
-  // === Проекция + смещение
+  // --- Проекция и смещения ---
   let projection = d3.geoMercator();
   let _offset = {x:8,y:8};
   function fitProjection(){
-    const w = cv.width / dpr, h = cv.height / dpr;
-    const mapW = Math.max(480, w*0.58), mapH = h - 20;
+    const w = Math.floor(cv.width  / dpr);
+    const h = Math.floor(cv.height / dpr);
+    const mapW = Math.max(480, Math.floor(w*0.58));
+    const mapH = Math.max(240, h-20);
     projection = d3.geoMercator();
     projection.fitSize([mapW, mapH], geo);
     _offset = {x:8,y:8};
   }
-  fitProjection(); window.addEventListener('resize', ()=>{ fitProjection(); });
+  fitProjection();
+  window.addEventListener('resize', ()=>{ fitProjection(); });
 
-  // === Построение контуров
+  // --- Построение путей ---
   function buildPath2D(f){
     const p = new Path2D();
     const geom = f.geometry||{};
@@ -162,16 +158,21 @@
   }
   const paths = features.map(buildPath2D);
 
-  // Центроиды целей (в экранных координатах)
+  // Центроиды (в экранных координатах)
   const gp = d3.geoPath(projection);
   const targets = features.map(f=>{ const c=gp.centroid(f); return [c[0]+_offset.x, c[1]+_offset.y]; });
 
-  // Состояние деталей
   const pieces = features.map((_,i)=>({ i, dx:0, dy:0, locked:false }));
 
-  // Оценка bbox через «пик»-канвас (грубо, но быстро)
+  function intWH(){ return {
+    w: Math.max(1, Math.floor(cv.width  / dpr)),
+    h: Math.max(1, Math.floor(cv.height / dpr))
+  };}
+
+  // Оценка bbox через «пик»-канвас (всё в целых пикселях)
   function bboxPath(path){
-    const w = cv.width / dpr, h = cv.height / dpr, step=4;
+    const {w,h} = intWH();
+    const step = 4;
     pick.save();
     pick.clearRect(0,0,w,h);
     pick.beginPath(); pick.fillStyle='#fff'; pick.fill(path);
@@ -179,7 +180,7 @@
     let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
     for(let y=0;y<h;y+=step){
       for(let x=0;x<w;x+=step){
-        const a = data[((y|0)*w + (x|0))*4 + 3];
+        const a = data[((y)*w + (x))*4 + 3];
         if(a>0){ if(x<minX)minX=x; if(y<minY)minY=y; if(x>maxX)maxX=x; if(y>maxY)maxY=y; }
       }
     }
@@ -189,7 +190,7 @@
   }
 
   function spawnPieces(){
-    const w = cv.width / dpr, h = cv.height / dpr;
+    const {w,h} = intWH();
     pieces.forEach(p=>{
       const bb = bboxPath(paths[p.i]);
       const trayX = w*0.60 + Math.random()*Math.max(20,(w*0.36-(bb.w+20)));
@@ -199,11 +200,10 @@
   }
   spawnPieces();
 
-  // === Рендер «мишени» и деталей
+  // Отрисовка «мишени» и деталей
   function drawTarget(){
     ctx.save();
     for(let i=0;i<paths.length;i++){
-      // лёгкая заливка цели, чтобы карту было отчётливо видно
       ctx.fillStyle = '#10224a'; ctx.globalAlpha = 0.18; ctx.fill(paths[i]);
       ctx.globalAlpha = 1; ctx.strokeStyle = '#25407a'; ctx.lineWidth = 1; ctx.stroke(paths[i]);
     }
@@ -222,18 +222,20 @@
 
   function id2color(id){ const r=(id&255), g=(id>>8)&255; return `rgb(${r},${g},1)`; }
   function color2id(r,g,b){ return r + (g<<8); }
+
   function orderedPieces(){
     const a = pieces.slice();
     a.sort((x,y)=>{ if(x===drag) return 1; if(y===drag) return -1; return (x.locked===y.locked)?0:(x.locked?-1:1); });
     return a;
   }
   function buildPick(){
-    const w=cv.width/dpr,h=cv.height/dpr;
-    pick.save(); pick.clearRect(0,0,w,h);
-    // важное: учитываем dpr-трансформацию, она уже выставлена в fitCanvas()
+    const {w,h} = intWH();
+    pick.save();
+    pick.clearRect(0,0,w,h);
     for(const p of orderedPieces()){
       pick.save(); pick.translate(p.dx,p.dy);
-      pick.fillStyle=id2color(p.i); pick.strokeStyle=pick.fillStyle;
+      const c = id2color(p.i);
+      pick.fillStyle=c; pick.strokeStyle=c;
       pick.fill(paths[p.i]); pick.stroke(paths[p.i]);
       pick.restore();
     }
@@ -245,16 +247,18 @@
     if(rebuild) buildPick();
   }
 
-  // Таймер и логика перетаскивания
+  // Таймер и перетаскивание
   let startAt=null, finished=false, placed=0;
-  const fmt=ms=>{ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; };
+  const fmt=ms=>{const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0');return `${String(m).padStart(2,'0')}:${ss}`};
   (function tick(){ if(!finished && startAt){ timeEl.textContent=fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
 
   let drag=null, off={x:0,y:0};
   function pickAt(x,y){
-    const px=Math.round(x*dpr), py=Math.round(y*dpr);
-    const d = pick.getImageData(px,py,1,1).data; if(d[3]===0) return null;
-    const id = color2id(d[0],d[1],d[2]); return pieces.find(p=>p.i===id);
+    const {w,h}=intWH();
+    const px=Math.min(w-1, Math.max(0, Math.round(x*dpr)));
+    const py=Math.min(h-1, Math.max(0, Math.round(y*dpr)));
+    const d=pick.getImageData(px,py,1,1).data; if(d[3]===0) return null;
+    const id=color2id(d[0],d[1],d[2]); return pieces.find(p=>p.i===id);
   }
   function onDown(e){
     const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
@@ -273,7 +277,10 @@
     const dist=Math.hypot((cx+drag.dx)-x+off.x,(cy+drag.dy)-y+off.y);
     if(dist<SNAP){
       drag.dx=0; drag.dy=0;
-      if(!drag.locked){ drag.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`; if(placed===1&&!startAt) startAt=performance.now(); if(placed>=TOTAL&&!finished){ finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.classList.add('ok'); } }
+      if(!drag.locked){ drag.locked=true; placed++; placedEl.textContent=`${placed} / ${TOTAL}`;
+        if(placed===1 && !startAt) startAt=performance.now();
+        if(placed>=TOTAL && !finished){ finished=true; statusEl.textContent='Готово! '+timeEl.textContent; statusEl.classList.add('ok'); }
+      }
     }
     drag=null; drawAll(true);
   }
