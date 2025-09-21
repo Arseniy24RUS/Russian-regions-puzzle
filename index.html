@@ -58,20 +58,31 @@
 
     <div class="card">
       <div class="row" style="justify-content:space-between">
-        <div style="font-weight:600">Таблица лидеров</div>
+        <div class="row" style="gap:12px">
+          <div style="font-weight:600">Таблица лидеров</div>
+          <div class="pill">Лучший результат в пределах своей сложности</div>
+        </div>
         <div class="row">
-          <select id="lbDifficulty" class="input">
-            <option value="all">Все сложности</option>
-            <option value="easy">Лёгкая</option>
-            <option value="medium">Средняя</option>
-            <option value="hard">Высокая</option>
-          </select>
-          <input id="lbGroupFilter" class="input" placeholder="Фильтр по группе" style="width:140px">
-          <button id="exportCSV" class="btn">Скачать CSV</button>
+          <input id="lbGroupFilter" class="input" placeholder="Фильтр по группе" style="width:180px">
+          <button id="exportCSV" class="btn">Скачать CSV (все результаты)</button>
         </div>
       </div>
-      <table class="table" id="leaderboard" style="margin-top:8px">
-        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Сложность</th><th>Время</th><th>Дата</th></tr></thead>
+
+      <div style="font-weight:600; margin-top:10px">Лёгкая</div>
+      <table class="table" id="leader_easy" style="margin-top:6px">
+        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Время</th><th>Дата</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <div style="font-weight:600; margin-top:10px">Средняя</div>
+      <table class="table" id="leader_medium" style="margin-top:6px">
+        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Время</th><th>Дата</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <div style="font-weight:600; margin-top:10px">Высокая</div>
+      <table class="table" id="leader_hard" style="margin-top:6px">
+        <thead><tr><th>#</th><th>ФИО</th><th>Группа</th><th>Время</th><th>Дата</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -101,7 +112,7 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
-  // ===== UI refs =====
+  // ===== UI refs (как в стабильной версии) =====
   const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
   const pick = document.createElement('canvas').getContext('2d');
   const statusEl = document.getElementById('status');
@@ -110,10 +121,14 @@
   const fioEl = document.getElementById('fio');
   const groupEl = document.getElementById('group');
   const difEl = document.getElementById('difficulty');
-  const lbTable = document.querySelector('#leaderboard tbody');
-  const lbDiffEl = document.getElementById('lbDifficulty');
+
+  // Лидеры: три отдельных tbody + фильтр по группе и экспорт
+  const tbEasy   = document.querySelector('#leader_easy tbody');
+  const tbMedium = document.querySelector('#leader_medium tbody');
+  const tbHard   = document.querySelector('#leader_hard tbody');
   const lbGroupEl = document.getElementById('lbGroupFilter');
   const exportBtn = document.getElementById('exportCSV');
+
   const zoomInBtn = document.getElementById('zoomIn');
   const zoomOutBtn = document.getElementById('zoomOut');
   const helpBtn = document.getElementById('help');
@@ -168,7 +183,7 @@
   }
   fitProjection();
 
-  // ===== Helpers: project to screen px =====
+  // ===== Helpers =====
   function projectPt(lnglat){
     const pt = projection(lnglat);
     return pt ? [pt[0]+_pad, pt[1]+_pad] : null;
@@ -189,8 +204,7 @@
     return {minX,minY,maxX,maxY, w:Math.max(1,maxX-minX), h:Math.max(1,maxY-minY), cx:(minX+maxX)/2, cy:(minY+maxY)/2};
   }
 
-  // ===== Seam-aware Path builders =====
-  // tol — упрощение (в пикселях); seamBreak — порог «большого скачка» (в пикселях): при превышении начинаем новый под-контур
+  // ===== Geometry build (как было) =====
   function buildPath2D(f, tol, seamBreak){
     const p = new Path2D();
     const g=f.geometry||{}, arr=(g.type==='Polygon')?[g.coordinates||[]]:(g.coordinates||[]);
@@ -202,13 +216,8 @@
           const x = pt[0], y = pt[1];
           if(!prev){ p.moveTo(x,y); prev=[x,y]; subStart=[x,y]; return; }
           const d = Math.hypot(x-prev[0], y-prev[1]);
-          if(d > (seamBreak||80)){ // разрыв по «шву» — закрываем предыдущий контур и начинаем новый
-            if(subStart) p.closePath();
-            p.moveTo(x,y);
-            subStart=[x,y]; prev=[x,y];
-          }else if(d > (tol||0)){
-            p.lineTo(x,y); prev=[x,y];
-          }
+          if(d > (seamBreak||80)){ if(subStart) p.closePath(); p.moveTo(x,y); subStart=[x,y]; prev=[x,y]; }
+          else if(d > (tol||0)){ p.lineTo(x,y); prev=[x,y]; }
         });
         if(subStart) p.closePath();
       });
@@ -216,8 +225,8 @@
     return p;
   }
 
-  let paths   = features.map(f=>buildPath2D(f, 0.8, 80)); // карта/перетаскивание: лёгкое упрощение + разрыв по шву
-  let pathsHi = new Array(features.length);               // hi-res для лотка
+  let paths   = features.map(f=>buildPath2D(f, 0.8, 80));
+  let pathsHi = new Array(features.length);
   function getHiPath(i){ return pathsHi[i] || (pathsHi[i]=buildPath2D(features[i], 0, 80)); }
 
   let boundsArr = features.map(featureBoundsPx);
@@ -289,7 +298,7 @@
   }
 
   // ===== Finish recolor =====
-  let recolorProgress = 0; // 0..1
+  let recolorProgress = 0;
   const BLUE = [0x00,0xAE,0xEF];
   const RED  = [0xFF,0x3B,0x30];
   function mix(a,b,t){ return Math.round(a+(b-a)*t); }
@@ -320,7 +329,6 @@
   }
 
   function drawPieces(){
-    // locked pieces
     ctx.save(); setScene(ctx);
     for(const p of pieces){
       if(!p.locked) continue;
@@ -333,7 +341,6 @@
     }
     ctx.restore();
 
-    // current piece
     const pc = pieces[current];
     if(!pc.locked){
       if(pc.inTray){
@@ -403,24 +410,9 @@
     if(rebuild) buildPick();
   }
 
-  // ===== Celebration =====
+  // ===== Fireworks + фанфары (как было) =====
   let celebrating = false;
-  function playFanfare(){
-    try{
-      const AC = new (window.AudioContext||window.webkitAudioContext)();
-      const seq = [880, 1175, 1568];
-      let t = AC.currentTime + 0.05;
-      seq.forEach((f,i)=>{
-        const o=AC.createOscillator(), g=AC.createGain();
-        o.type='triangle'; o.frequency.value=f;
-        g.gain.setValueAtTime(0.0001,t);
-        g.gain.exponentialRampToValueAtTime(0.2,t+0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
-        o.connect(g).connect(AC.destination); o.start(t); o.stop(t+0.26);
-        t += 0.19;
-      });
-    }catch(e){}
-  }
+  function playFanfare(){ try{ const AC = new (window.AudioContext||window.webkitAudioContext)(); const seq = [880, 1175, 1568]; let t = AC.currentTime + 0.05; seq.forEach(f=>{ const o=AC.createOscillator(), g=AC.createGain(); o.type='triangle'; o.frequency.value=f; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.2,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.25); o.connect(g).connect(AC.destination); o.start(t); o.stop(t+0.26); t+=0.19; }); }catch(e){} }
   function startFireworks(){
     celebrating = true;
     const t0 = performance.now();
@@ -428,27 +420,12 @@
     const W = r.width, H = r.height;
     const mapBottom = H - TRAY.height - TRAY.margin;
     const bursts = [];
-
-    function newBurst(){
-      const x = 40 + Math.random()*(W-80);
-      const y = 40 + Math.random()*(mapBottom-80);
-      const c = 24 + Math.floor(Math.random()*24);
-      const parts=[];
-      for(let i=0;i<c;i++){
-        const ang = (i/c)*Math.PI*2;
-        const spd = 1.2 + Math.random()*2.2;
-        parts.push({x,y, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, life:1});
-      }
-      bursts.push({parts, age:0});
-    }
-
+    function newBurst(){ const x = 40 + Math.random()*(W-80); const y = 40 + Math.random()*(mapBottom-80); const c = 24 + Math.floor(Math.random()*24); const parts=[]; for(let i=0;i<c;i++){ const ang=(i/c)*Math.PI*2; const spd = 1.2 + Math.random()*2.2; parts.push({x,y, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, life:1}); } bursts.push({parts, age:0}); }
     function step(now){
       const dt = Math.min(0.033, (now - (step._last||now))/1000); step._last = now;
       const elapsed = now - t0;
       if(elapsed < 1600 && (!step._lastBurst || now - step._lastBurst > 180)){ newBurst(); step._lastBurst = now; }
-
       drawAll(false);
-
       ctx.save(); ctx.setTransform(dpr,0,0,dpr,0,0);
       bursts.forEach(b=>{
         b.age += dt;
@@ -464,15 +441,13 @@
       });
       for(let i=bursts.length-1;i>=0;i--){ bursts[i].parts = bursts[i].parts.filter(p=>p.life>0); if(!bursts[i].parts.length) bursts.splice(i,1); }
       ctx.restore();
-
-      if(elapsed < 2300 || bursts.length){ requestAnimationFrame(step); }
-      else { celebrating=false; }
+      if(elapsed < 2300 || bursts.length){ requestAnimationFrame(step); } else { celebrating=false; }
     }
     requestAnimationFrame(step);
     playFanfare();
   }
 
-  // ===== Timer =====
+  // ===== Таймер =====
   function fmt(ms){ const CAP=(59*60+59)*1000; const t=Math.min(ms,CAP); const s=Math.floor(t/1000), m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}` }
   (function tick(){ if(!finished && startAt){ timeEl.textContent = fmt(performance.now()-startAt); } requestAnimationFrame(tick); })();
 
@@ -490,7 +465,6 @@
     const w=screenToWorld(cx,cy);
     view.k=k; view.x = cx - w.x*k; view.y = cy - w.y*k; drawAll(true);
   }
-
   function startPinch(){
     const pts=[...pointers.values()]; if(pts.length<2) return;
     const a=pts[0], b=pts[1]; const cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
@@ -609,7 +583,7 @@
     if(saved.difficulty && ['easy','medium','hard'].includes(saved.difficulty)) difEl.value=saved.difficulty;
   }catch{}
 
-  // ===== Buttons =====
+  // ===== Кнопки =====
   zoomInBtn.onclick  = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1.2, r.width/2, r.height/2); };
   zoomOutBtn.onclick = ()=>{ const r=cv.getBoundingClientRect(); zoomAt(1/1.2, r.width/2, r.height/2); };
   helpBtn.onclick = ()=> alert('Инструкция:\n• Перетаскивайте текущий субъект РФ из нижнего «лотка» на карту: потяните вверх за край лотка.\n• Масштаб/перемещение: колесо мыши; на телефоне — один палец панорамирование, два пальца — пинч-зум (макс. ×16).\n• Сложность фиксируется после установки первой детали.\n• «Вернуть деталь» — возвращает текущую незакреплённую деталь в лоток.\n• «Центрировать карту» — исходный вид.');
@@ -624,33 +598,78 @@
     fitProjection(); rebuildGeometry(); fitView(); setCurrent(order[cursor]); drawAll(true);
   };
 
-  // ===== Leaderboard / CSV =====
+  // ===== Leaderboards: 3 таблицы + фильтр по группе =====
   function msToMMSS(ms){ const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
   function q(s){ s=String(s||''); return `"${s.replace(/"/g,'""')}"`; }
-  function renderLeaderboard(all){
-    const diff = lbDiffEl.value, gflt = lbGroupEl.value.trim().toLowerCase();
-    const byFio = new Map();
-    for(const r of all){
-      if(diff!=='all' && r.difficulty!==diff) continue;
-      if(gflt && (!r.group || !String(r.group).toLowerCase().includes(gflt))) continue;
-      const key = (r.fio||'').trim() || '(без ФИО)';
-      const prev = byFio.get(key);
-      if(!prev || (r.time_ms||1e12) < (prev.time_ms||1e12)) byFio.set(key, r);
-    }
-    const rows = Array.from(byFio.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
-    function diffText(d){ return d==='easy'?'Лёгкая':(d==='medium'?'Средняя':'Высокая'); }
-    lbTable.innerHTML = rows.map((r,i)=>`<tr><td>${i+1}</td><td>${(r.fio||'')}</td><td>${(r.group||'')}</td><td>${diffText(r.difficulty)}</td><td>${msToMMSS(r.time_ms||0)}</td><td>${new Date(r.timestamp||Date.now()).toLocaleString()}</td></tr>`).join('');
-    exportBtn.onclick = ()=>{
-      const hdr=['rank','fio','group','difficulty','time_mmss','time_ms','timestamp'];
-      const lines=[hdr.join(',')].concat(rows.map((r,i)=>[i+1,q(r.fio),q(r.group),r.difficulty,msToMMSS(r.time_ms||0),r.time_ms||0,new Date(r.timestamp||Date.now()).toISOString()].join(',')));
-      const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='puzzle_results.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-    };
+
+  // Нормализация сложности на случай разнобоя в БД
+  function normalizeDiff(d){
+    if(d==='easy'||d==='medium'||d==='hard') return d;
+    const t=String(d||'').toLowerCase();
+    if(/легк/.test(t)||t==='e') return 'easy';
+    if(/сред/.test(t)||t==='m') return 'medium';
+    if(/высок|слож/.test(t)||t==='h') return 'hard';
+    return 'easy';
   }
+
+  // Берём лучший результат студента в разрезе «ФИО+группа+сложность»
+  function bestPerFioGroupDifficulty(all, groupFilter){
+    const res = { easy:[], medium:[], hard:[] };
+    const byKey = { easy:new Map(), medium:new Map(), hard:new Map() };
+    const gflt = (groupFilter||'').trim().toLowerCase();
+
+    for(const r of all){
+      const diff = normalizeDiff(r.difficulty);
+      const fio  = (r.fio||'').trim();
+      const grp  = (r.group||'').trim();
+      if(gflt && !grp.toLowerCase().includes(gflt)) continue;
+
+      const key = `${fio}|||${grp}|||${diff}`;
+      const prev = byKey[diff].get(key);
+      if(!prev || (r.time_ms||1e12) < (prev.time_ms||1e12)){
+        byKey[diff].set(key, r);
+      }
+    }
+    res.easy   = Array.from(byKey.easy.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
+    res.medium = Array.from(byKey.medium.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
+    res.hard   = Array.from(byKey.hard.values()).sort((a,b)=> (a.time_ms||1e12)-(b.time_ms||1e12)).slice(0,50);
+    return res;
+  }
+
+  function renderTable(tbody, rows){
+    tbody.innerHTML = rows.map((r,i)=>`<tr><td>${i+1}</td><td>${(r.fio||'')}</td><td>${(r.group||'')}</td><td>${msToMMSS(r.time_ms||0)}</td><td>${new Date(r.timestamp||Date.now()).toLocaleString()}</td></tr>`).join('');
+    if(!rows.length){ tbody.innerHTML = `<tr><td colspan="5" style="color:#a9b7d6">Нет данных</td></tr>`; }
+  }
+
+  let ALL_RESULTS = [];
+  function renderLeaderboards(all){
+    ALL_RESULTS = all.slice(); // для CSV
+    const buckets = bestPerFioGroupDifficulty(all, lbGroupEl.value);
+    renderTable(tbEasy,   buckets.easy);
+    renderTable(tbMedium, buckets.medium);
+    renderTable(tbHard,   buckets.hard);
+  }
+
+  lbGroupEl.addEventListener('input', ()=> renderLeaderboards(ALL_RESULTS));
+
+  // Экспортируем все «сырые» записи без фильтра (как просили)
+  exportBtn.onclick = ()=>{
+    const hdr=['fio','group','difficulty','time_mmss','time_ms','timestamp_iso','user_agent'];
+    const lines=[hdr.join(',')].concat(ALL_RESULTS.map(r=>{
+      const diff = normalizeDiff(r.difficulty);
+      return [q(r.fio||''), q(r.group||''), diff, msToMMSS(r.time_ms||0), (r.time_ms||0), new Date(r.timestamp||Date.now()).toISOString(), q(r.user_agent||'')].join(',');
+    }));
+    const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='puzzle_results_all.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  };
+
+  // Подписка на БД как и раньше — только теперь рисуем три таблицы
   const resultsRef = db.ref('results');
   resultsRef.on('value', snap=>{
     const val = snap.val()||{}; const all = Object.keys(val).map(k=>val[k]).filter(Boolean);
-    renderLeaderboard(all);
+    renderLeaderboards(all);
   });
+
+  // ===== Сохранение результата (без изменений) =====
   function persistResult(){
     const payload = {
       fio: (fioEl.value||'').trim(),
@@ -664,7 +683,7 @@
     db.ref('results').push(payload).catch(err=>console.error('DB write error:', err));
   }
 
-  // ===== Start =====
+  // ===== Старт =====
   statusEl.textContent='Карта загружена';
   saveProfile();
   setCurrent(current); drawAll(true);
