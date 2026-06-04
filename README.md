@@ -16,6 +16,16 @@
 
 The project is designed for seminars in public administration, geography, regional studies and spatial literacy. It turns memorization of regional geography into an active task involving recognition of shapes, spatial position, territorial hierarchy and time-limited decision-making.
 
+### Visual overview
+
+![Russian Regions Puzzle hero](assets/visuals/hero-en.png)
+
+![Scenario walkthrough: enter player and group, choose difficulty, place and return a piece, inspect leaderboard](assets/visuals/scenario-en.gif)
+
+![Architecture diagram: TopoJSON geometry to game state, scoring timer and Firebase leaderboard export](assets/visuals/architecture-en.svg)
+
+![Methodology diagram: region recognition to placement accuracy, difficulty time and learning feedback](assets/visuals/methodology-en.svg)
+
 ### Live game
 
 GitHub Pages: <https://arseniy24rus.github.io/Russian-regions-puzzle/>
@@ -84,6 +94,16 @@ Unless otherwise stated, source code is released under the MIT License. Educatio
 `Russian-regions-puzzle` — интерактивная браузерная картографическая игра для изучения субъектов Российской Федерации. Студенты перетаскивают контуры регионов на карту, собирают полную территориальную мозаику, сравнивают результаты через таблицу лидеров и экспортируют итоги аудиторной работы для дальнейшего анализа.
 
 Проект предназначен для семинаров по государственному управлению, географии, регионоведению и пространственной грамотности. Он превращает запоминание региональной географии в активную задачу, включающую распознавание формы, пространственного положения, территориальной иерархии и принятия решений в условиях ограничения времени.
+
+### Визуальный обзор
+
+![Главный экран пазла регионов России](assets/visuals/hero-ru.png)
+
+![Сценарий: ввести игрока и группу, выбрать сложность, разместить и вернуть деталь, изучить таблицу лидеров](assets/visuals/scenario-ru.gif)
+
+![Диаграмма архитектуры: геометрия TopoJSON, игровое состояние, подсчет и таймер, Firebase и экспорт](assets/visuals/architecture-ru.svg)
+
+![Диаграмма методики: распознавание региона, точность размещения, сложность и время, учебная обратная связь](assets/visuals/methodology-ru.svg)
 
 ### Публичная игра
 

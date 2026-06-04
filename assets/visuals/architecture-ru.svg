@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">Архитектура пазла регионов России</title>
+  <desc id="desc">Геометрия TopoJSON переходит в игровое состояние, подсчет и таймер, затем в Firebase, таблицу лидеров и экспорт.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#071022"/><stop offset="1" stop-color="#102449"/></linearGradient>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#13284f"/><stop offset="1" stop-color="#0b1835"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000817" flood-opacity=".45"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="10" markerHeight="10" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#39d6dc"/></marker>
+    <style>
+      .title{font:700 38px Arial,sans-serif;fill:#f6f9ff}.sub{font:400 20px Arial,sans-serif;fill:#b8ccec}.h{font:700 22px Arial,sans-serif;fill:#f6f9ff}.p{font:400 17px Arial,sans-serif;fill:#cbd8ef}.foot{font:700 19px Arial,sans-serif;fill:#dbe8ff}
+    </style>
+  </defs>
+  <rect width="1200" height="520" fill="url(#bg)"/>
+  <path d="M84 126 C262 62 392 118 536 128 C728 142 830 62 1044 110" fill="none" stroke="#315aa5" stroke-width="2" opacity=".28"/>
+  <text class="title" x="56" y="74">Архитектура</text>
+  <text class="sub" x="56" y="110">Геометрия TopoJSON -> игровое состояние -> подсчет/таймер -> Firebase и экспорт.</text>
+  <g filter="url(#shadow)">
+    <g transform="translate(50 166)">
+      <rect width="260" height="190" rx="8" fill="url(#card)" stroke="#ff4232" stroke-width="2"/>
+      <circle cx="34" cy="38" r="13" fill="#ff4232"/>
+      <text class="h" x="58" y="45">TopoJSON-карта</text>
+      <text class="p" x="28" y="92"><tspan x="28">Контуры регионов</tspan><tspan x="28" dy="30">Настройка проекции</tspan><tspan x="28" dy="30">Источник Canvas</tspan></text>
+    </g>
+    <g transform="translate(330 166)">
+      <rect width="260" height="190" rx="8" fill="url(#card)" stroke="#39d6dc" stroke-width="2"/>
+      <circle cx="34" cy="38" r="13" fill="#39d6dc"/>
+      <text class="h" x="58" y="45">Игровое состояние</text>
+      <text class="p" x="28" y="92"><tspan x="28">Текущая деталь</tspan><tspan x="28" dy="30">Размещенные субъекты</tspan><tspan x="28" dy="30">Ошибки и сброс</tspan></text>
+    </g>
+    <g transform="translate(610 166)">
+      <rect width="260" height="190" rx="8" fill="url(#card)" stroke="#ffc75f" stroke-width="2"/>
+      <circle cx="34" cy="38" r="13" fill="#ffc75f"/>
+      <text class="h" x="58" y="45">Подсчет и таймер</text>
+      <text class="p" x="28" y="92"><tspan x="28">Уровень сложности</tspan><tspan x="28" dy="30">Проверка точности</tspan><tspan x="28" dy="30">Время прохождения</tspan></text>
+    </g>
+    <g transform="translate(890 166)">
+      <rect width="260" height="190" rx="8" fill="url(#card)" stroke="#5eeab0" stroke-width="2"/>
+      <circle cx="34" cy="38" r="13" fill="#5eeab0"/>
+      <text class="h" x="58" y="45">Лидеры / экспорт</text>
+      <text class="p" x="28" y="92"><tspan x="28">Firebase-результаты</tspan><tspan x="28" dy="30">Фильтр по группам</tspan><tspan x="28" dy="30">CSV для аудитории</tspan></text>
+    </g>
+  </g>
+  <path d="M316 260 H322" stroke="#39d6dc" stroke-width="4" marker-end="url(#arrow)"/><path d="M596 260 H602" stroke="#39d6dc" stroke-width="4" marker-end="url(#arrow)"/><path d="M876 260 H882" stroke="#39d6dc" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="148" y="414" width="904" height="54" rx="8" fill="#081832" stroke="#294e95"/>
+  <text class="foot" x="600" y="449" text-anchor="middle">Языковой слой EN/RU охватывает интерфейс, таблицу лидеров и экспорт.</text>
+</svg>
