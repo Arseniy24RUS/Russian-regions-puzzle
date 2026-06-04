@@ -1,0 +1,15 @@
+{
+  "name": "russian-regions-puzzle",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:i18n": "playwright test tests/i18n.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.53.0",
+    "d3": "^7.9.0",
+    "http-server": "^14.1.1",
+    "topojson-client": "^3.1.0"
+  }
+}

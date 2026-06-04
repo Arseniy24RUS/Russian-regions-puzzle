@@ -1,0 +1,168 @@
+{
+  "meta": {
+    "title": "Online Puzzle \"Map of Federal Subjects of Russia\" - Canvas, Leaderboard, Firebase"
+  },
+  "language": {
+    "toggleToEnglish": "Switch to English",
+    "toggleToRussian": "Switch to Russian"
+  },
+  "app": {
+    "title": "Online Puzzle \"Map of Federal Subjects of Russia\""
+  },
+  "form": {
+    "fullNameLabel": "Full name",
+    "fullNamePlaceholder": "Ivanov Ivan Ivanovich",
+    "groupLabel": "Group number",
+    "groupPlaceholder": "GGUBD-01-25",
+    "difficultyLabel": "Difficulty"
+  },
+  "difficulty": {
+    "easy": "Easy",
+    "medium": "Medium",
+    "hard": "Hard"
+  },
+  "stats": {
+    "placed": "Placed",
+    "time": "Time"
+  },
+  "actions": {
+    "reset": "Reset",
+    "help": "Instructions",
+    "returnPiece": "Return piece",
+    "centerView": "Center map"
+  },
+  "status": {
+    "loading": "Loading map...",
+    "loaded": "Map loaded",
+    "missing": "Map not found",
+    "finishedTime": "Done! {time}"
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "subtitle": "Best result within each difficulty",
+    "filterPlaceholder": "Filter by group",
+    "exportAll": "Download CSV (all results)",
+    "empty": "No data",
+    "columns": {
+      "index": "#",
+      "fullName": "Full name",
+      "group": "Group",
+      "time": "Time",
+      "date": "Date"
+    }
+  },
+  "tray": {
+    "currentSubject": "Current federal subject:",
+    "done": "Done!"
+  },
+  "alerts": {
+    "difficultyLocked": "Difficulty cannot be changed after the first piece is placed. Press \"Reset\" to start a new game.",
+    "help": "Instructions:\n- Drag the current federal subject from the lower tray to the map: pull upward from the tray edge.\n- Zoom/pan: mouse wheel; on a phone, one finger pans and two fingers pinch-zoom (max x16).\n- Difficulty is locked after the first piece is placed.\n- \"Return piece\" moves the current unlocked piece back to the tray.\n- \"Center map\" restores the initial view."
+  },
+  "footer": {
+    "author": "Author: Arseniy Mikhailovich Sitkovsky, 2025, e-mail: omnistat@yandex.ru"
+  },
+  "regions": {
+    "fallback": "Federal subject #{number}",
+    "Херсонская область": "Kherson Oblast",
+    "Луганская народная республика": "Lugansk People's Republic",
+    "Донецкая народная республика": "Donetsk People's Republic",
+    "Запорожская область": "Zaporozhye Oblast",
+    "Камчатский край": "Kamchatka Krai",
+    "Мурманская область": "Murmansk Oblast",
+    "Пермский край": "Perm Krai",
+    "Свердловская область": "Sverdlovsk Oblast",
+    "Вологодская область": "Vologda Oblast",
+    "Владимирская область": "Vladimir Oblast",
+    "Калининградская область": "Kaliningrad Oblast",
+    "Челябинская область": "Chelyabinsk Oblast",
+    "Новгородская область": "Novgorod Oblast",
+    "Республика Крым": "Republic of Crimea",
+    "Севастополь": "Sevastopol",
+    "Ингушетия": "Ingushetia",
+    "Тверская область": "Tver Oblast",
+    "Сахалинская область": "Sakhalin Oblast",
+    "Калужская область": "Kaluga Oblast",
+    "Самарская область": "Samara Oblast",
+    "Ивановская область": "Ivanovo Oblast",
+    "Орловская область": "Oryol Oblast",
+    "Смоленская область": "Smolensk Oblast",
+    "Тульская область": "Tula Oblast",
+    "Чукотский автономный округ": "Chukotka Autonomous Okrug",
+    "Томская область": "Tomsk Oblast",
+    "Приморский край": "Primorsky Krai",
+    "Республика Карелия": "Republic of Karelia",
+    "Архангельская область": "Arkhangelsk Oblast",
+    "Мордовия": "Republic of Mordovia",
+    "Ульяновская область": "Ulyanovsk Oblast",
+    "Волгоградская область": "Volgograd Oblast",
+    "Астраханская область": "Astrakhan Oblast",
+    "Курская область": "Kursk Oblast",
+    "Воронежская область": "Voronezh Oblast",
+    "Ярославская область": "Yaroslavl Oblast",
+    "Новосибирская область": "Novosibirsk Oblast",
+    "Ненецкий автономный округ": "Nenets Autonomous Okrug",
+    "Республика Коми": "Komi Republic",
+    "Омская область": "Omsk Oblast",
+    "Башкортостан": "Bashkortostan",
+    "Оренбургская область": "Orenburg Oblast",
+    "Еврейская автономная область": "Jewish Autonomous Oblast",
+    "Удмуртия": "Udmurtia",
+    "Татарстан": "Tatarstan",
+    "Калмыкия": "Kalmykia",
+    "Санкт-Петербург": "Saint Petersburg",
+    "Нижегородская область": "Nizhny Novgorod Oblast",
+    "Ленинградская область": "Leningrad Oblast",
+    "Кировская область": "Kirov Oblast",
+    "Костромская область": "Kostroma Oblast",
+    "Брянская область": "Bryansk Oblast",
+    "Псковская область": "Pskov Oblast",
+    "Саратовская область": "Saratov Oblast",
+    "Пензенская область": "Penza Oblast",
+    "Липецкая область": "Lipetsk Oblast",
+    "Амурская область": "Amur Oblast",
+    "Северная Осетия - Алания": "North Ossetia-Alania",
+    "Дагестан": "Dagestan",
+    "Чеченская республика": "Chechen Republic",
+    "Хабаровский край": "Khabarovsk Krai",
+    "Магаданская область": "Magadan Oblast",
+    "Ямало-Ненецкий автономный округ": "Yamalo-Nenets Autonomous Okrug",
+    "Ханты-Мансийский автономный округ - Югра": "Khanty-Mansi Autonomous Okrug - Yugra",
+    "Московская область": "Moscow Oblast",
+    "Москва": "Moscow",
+    "Ставропольский край": "Stavropol Krai",
+    "Ростовская область": "Rostov Oblast",
+    "Краснодарский край": "Krasnodar Krai",
+    "Адыгея": "Adygea",
+    "Тамбовская область": "Tambov Oblast",
+    "Рязанская область": "Ryazan Oblast",
+    "Кемеровская область": "Kemerovo Oblast",
+    "Республика Хакасия": "Khakassia",
+    "Алтайский край": "Altai Krai",
+    "Республика Алтай": "Altai Republic",
+    "Забайкальский край": "Zabaykalsky Krai",
+    "Марий Эл": "Mari El",
+    "Чувашия": "Chuvashia",
+    "Белгородская область": "Belgorod Oblast",
+    "Республика Саха (Якутия)": "Sakha Republic (Yakutia)",
+    "Курганская область": "Kurgan Oblast",
+    "Тюменская область": "Tyumen Oblast",
+    "Тыва": "Tuva",
+    "Красноярский край": "Krasnoyarsk Krai",
+    "Бурятия": "Buryatia",
+    "Иркутская область": "Irkutsk Oblast",
+    "Кабардино-Балкария": "Kabardino-Balkaria",
+    "Карачаево-Черкесия": "Karachay-Cherkessia"
+  },
+  "federalDistricts": {
+    "Центральный федеральный округ": "Central Federal District",
+    "Северо-Западный федеральный округ": "Northwestern Federal District",
+    "Южный федеральный округ": "Southern Federal District",
+    "Северо-Кавказский федеральный округ": "North Caucasian Federal District",
+    "Приволжский федеральный округ": "Volga Federal District",
+    "Уральский федеральный округ": "Ural Federal District",
+    "Сибирский федеральный округ": "Siberian Federal District",
+    "Дальневосточный федеральный округ": "Far Eastern Federal District",
+    "Крымский федеральный округ": "Crimean Federal District"
+  }
+}
