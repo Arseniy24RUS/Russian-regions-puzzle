@@ -1,10 +1,10 @@
-# Russian Regions Puzzle · Interactive Map Game for Learning Federal Subjects
+﻿# Russian Regions Puzzle · Interactive Map Game for Learning Federal Subjects
 
 [English](#english) · [Русский](#русский)
 
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-blue)](https://arseniy24rus.github.io/Russian-regions-puzzle/)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
-[![Content: CC BY 4.0](https://img.shields.io/badge/content-CC%20BY%204.0-lightgrey.svg)](LICENSE-DOCS-AND-DATA.md)
+[![Content: CC BY 4.0](https://img.shields.io/badge/content-CC%20BY%204.0-lightgrey.svg)](docs/license-docs-and-data.md)
 
 ---
 
@@ -90,7 +90,7 @@ If you use the game in teaching, research, presentations or derivative education
 | Material | License | Notes |
 | --- | --- | --- |
 | Source code | [MIT](LICENSE) | Static game code, tests and scripts. |
-| Repository-authored docs, data and educational content | [CC BY 4.0](LICENSE-DOCS-AND-DATA.md) | Includes methodology, documentation, diagrams, screenshots and classroom text unless otherwise noted. |
+| Repository-authored docs, data and educational content | [CC BY 4.0](docs/license-docs-and-data.md) | Includes methodology, documentation, diagrams, screenshots and classroom text unless otherwise noted. |
 | Third-party libraries, Firebase services, map-data sources, official or institutional names and external materials | Original terms | See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); project licenses do not override third-party terms. |
 
 ---
@@ -177,5 +177,5 @@ python -m http.server 8000
 | Материал | Лицензия | Примечания |
 | --- | --- | --- |
 | Исходный код | [MIT](LICENSE) | Код статической игры, тесты и скрипты. |
-| Авторские документы, данные и учебный контент репозитория | [CC BY 4.0](LICENSE-DOCS-AND-DATA.md) | Методология, документация, диаграммы, скриншоты и учебные тексты, если не указано иное. |
+| Авторские документы, данные и учебный контент репозитория | [CC BY 4.0](docs/license-docs-and-data.md) | Методология, документация, диаграммы, скриншоты и учебные тексты, если не указано иное. |
 | Библиотеки третьих сторон, сервисы Firebase, источники картографических данных, официальные или институциональные названия и внешние материалы | Исходные условия | См. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); лицензии проекта не переопределяют условия третьих сторон. |
