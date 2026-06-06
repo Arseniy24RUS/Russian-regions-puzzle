@@ -4,7 +4,7 @@
 
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-blue)](https://arseniy24rus.github.io/Russian-regions-puzzle/)
 [![Code: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
-[![Content: CC BY 4.0](https://img.shields.io/badge/content-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![Content: CC BY 4.0](https://img.shields.io/badge/content-CC%20BY%204.0-lightgrey.svg)](LICENSE-DOCS-AND-DATA.md)
 
 ---
 
@@ -71,6 +71,10 @@ If Firebase is enabled, the game can save player name, group, difficulty level, 
 
 A typical classroom workflow consists of four stages: short introduction to the map and difficulty levels; individual or team play; export and comparison of results; group discussion of which regions were most difficult and why. The game can be used to connect spatial knowledge with administrative-territorial structure, federal districts, regional policy and demographic geography.
 
+### Research methodology
+
+For learning design, TopoJSON assumptions, scoring, timer, difficulty, leaderboard logic, Firebase/export considerations, assessment limits and adaptation notes, see [docs/methodology.md](docs/methodology.md).
+
 ### Interpretation and limitations
 
 The game is an educational tool. Its purpose is not to test political views or formal cartographic expertise, but to improve spatial recognition and familiarity with Russian regions. The geometry file, map projection and region names should be periodically checked for consistency with the intended teaching context.
@@ -83,7 +87,11 @@ If you use the game in teaching, research, presentations or derivative education
 
 ### License
 
-Unless otherwise stated, source code is released under the MIT License. Educational text, classroom methodology and documentation are released under Creative Commons Attribution 4.0 International (CC BY 4.0). External libraries, TopoJSON source data and Firebase services are governed by their own licenses and terms.
+| Material | License | Notes |
+| --- | --- | --- |
+| Source code | [MIT](LICENSE) | Static game code, tests and scripts. |
+| Repository-authored docs, data and educational content | [CC BY 4.0](LICENSE-DOCS-AND-DATA.md) | Includes methodology, documentation, diagrams, screenshots and classroom text unless otherwise noted. |
+| Third-party libraries, Firebase services, map-data sources, official or institutional names and external materials | Original terms | See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); project licenses do not override third-party terms. |
 
 ---
 
@@ -150,6 +158,10 @@ python -m http.server 8000
 
 Типовой аудиторный процесс состоит из четырёх этапов: краткое введение в карту и уровни сложности; индивидуальная или командная игра; экспорт и сравнение результатов; групповая дискуссия о том, какие регионы оказались наиболее сложными и почему. Игру можно использовать для связи пространственного знания с административно-территориальным устройством, федеральными округами, региональной политикой и демографической географией.
 
+### Методология исследования
+
+Описание учебного дизайна, предположений TopoJSON, логики подсчета, таймера, сложности, таблицы лидеров, Firebase/экспорта, ограничений оценки и адаптации см. в [docs/methodology.md](docs/methodology.md).
+
 ### Интерпретация и ограничения
 
 Игра является образовательным инструментом. Её цель — не проверка политических взглядов или формальной картографической экспертизы, а развитие пространственного распознавания и знакомства с субъектами РФ. Файл геометрии, картографическая проекция и названия регионов должны периодически проверяться на соответствие учебному контексту.
@@ -162,4 +174,8 @@ python -m http.server 8000
 
 ### Лицензия
 
-Если явно не указано иное, исходный код распространяется по лицензии MIT. Учебные тексты, методика аудиторной работы и документация распространяются по лицензии Creative Commons Attribution 4.0 International (CC BY 4.0). Внешние библиотеки, исходные TopoJSON-данные и сервисы Firebase регулируются собственными лицензиями и условиями использования.
+| Материал | Лицензия | Примечания |
+| --- | --- | --- |
+| Исходный код | [MIT](LICENSE) | Код статической игры, тесты и скрипты. |
+| Авторские документы, данные и учебный контент репозитория | [CC BY 4.0](LICENSE-DOCS-AND-DATA.md) | Методология, документация, диаграммы, скриншоты и учебные тексты, если не указано иное. |
+| Библиотеки третьих сторон, сервисы Firebase, источники картографических данных, официальные или институциональные названия и внешние материалы | Исходные условия | См. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); лицензии проекта не переопределяют условия третьих сторон. |
