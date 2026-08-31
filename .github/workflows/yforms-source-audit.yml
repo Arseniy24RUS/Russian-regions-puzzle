@@ -1,0 +1,131 @@
+name: Yandex Forms source audit
+
+on:
+  push:
+    branches:
+      - yforms-source-audit-2026
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare audit workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/curl audit/browser/responses
+          for kind in public preview; do
+            if [ "$kind" = public ]; then
+              url='https://forms.yandex.ru/u/68c075f9e010db424bd32329/'
+            else
+              url='https://forms.yandex.ru/u/preview/68c075f9e010db424bd32329/'
+            fi
+            curl -L --compressed --retry 3 --connect-timeout 20 --max-time 90 \
+              -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36' \
+              -D "audit/curl/${kind}-headers.txt" \
+              "$url" -o "audit/curl/${kind}.html" || true
+          done
+
+      - name: Install Playwright
+        shell: bash
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+
+      - name: Capture rendered pages and network responses
+        shell: bash
+        run: |
+          cat > audit/audit.mjs <<'JS'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs/promises';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+
+          const targets = [
+            ['public', 'https://forms.yandex.ru/u/68c075f9e010db424bd32329/'],
+            ['preview', 'https://forms.yandex.ru/u/preview/68c075f9e010db424bd32329/'],
+          ];
+
+          const browser = await chromium.launch({ headless: true });
+          for (const [name, url] of targets) {
+            const context = await browser.newContext({
+              locale: 'ru-RU',
+              viewport: { width: 1440, height: 1000 },
+              userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
+              recordHar: { path: `audit/browser/${name}.har`, mode: 'full', content: 'embed' },
+            });
+            const page = await context.newPage();
+            const responseIndex = [];
+            page.on('response', async (response) => {
+              const headers = await response.allHeaders().catch(() => ({}));
+              const ct = String(headers['content-type'] || '').toLowerCase();
+              const responseUrl = response.url();
+              const interesting = ct.includes('json') || /survey|form|question|answer|image|media|gateway|api/i.test(responseUrl);
+              if (!interesting) return;
+              try {
+                const body = await response.body();
+                if (!body.length || body.length > 25_000_000) return;
+                const sha = crypto.createHash('sha256').update(responseUrl).digest('hex').slice(0, 16);
+                let ext = '.bin';
+                if (ct.includes('json')) ext = '.json';
+                else if (ct.includes('html')) ext = '.html';
+                else if (ct.includes('javascript')) ext = '.js';
+                else if (ct.includes('image/jpeg')) ext = '.jpg';
+                else if (ct.includes('image/png')) ext = '.png';
+                else if (ct.includes('image/webp')) ext = '.webp';
+                const filename = `${name}-${sha}${ext}`;
+                await fs.writeFile(path.join('audit/browser/responses', filename), body);
+                responseIndex.push({ url: responseUrl, status: response.status(), contentType: ct, filename, size: body.length });
+              } catch {}
+            });
+            let error = null;
+            try {
+              await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+              await page.waitForTimeout(12000);
+              await page.screenshot({ path: `audit/browser/${name}.png`, fullPage: true });
+              await fs.writeFile(`audit/browser/${name}.html`, await page.content(), 'utf8');
+              const info = await page.evaluate(() => ({
+                title: document.title,
+                url: location.href,
+                lang: document.documentElement.lang,
+                text: document.body?.innerText?.slice(0, 100000) || '',
+                images: Array.from(document.images).map((img) => ({ src: img.currentSrc || img.src, alt: img.alt, width: img.naturalWidth, height: img.naturalHeight })),
+                scripts: Array.from(document.scripts).map((s) => s.src || (s.textContent || '').slice(0, 500)),
+                globals: Object.keys(window).filter((key) => /form|survey|question|data|redux|state/i.test(key)).sort(),
+              }));
+              await fs.writeFile(`audit/browser/${name}-dom.json`, JSON.stringify(info, null, 2), 'utf8');
+            } catch (e) {
+              error = String(e?.stack || e);
+              await fs.writeFile(`audit/browser/${name}-error.txt`, error, 'utf8');
+            }
+            await fs.writeFile(`audit/browser/${name}-responses.json`, JSON.stringify(responseIndex, null, 2), 'utf8');
+            await context.close();
+          }
+          await browser.close();
+          JS
+          node audit/audit.mjs
+
+      - name: Inventory artifact
+        shell: bash
+        run: |
+          find audit -type f -printf '%P\t%s bytes\n' | sort > audit/inventory.txt
+
+      - name: Upload audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: yforms-source-audit
+          path: audit
+          if-no-files-found: error
+          retention-days: 3
