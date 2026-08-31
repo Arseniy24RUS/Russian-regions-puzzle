@@ -20,8 +20,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install browser client
-        run: npm install --no-save playwright-core@1.55.0
+      - name: Install browser and image clients
+        run: |
+          npm install --no-save playwright-core@1.55.0
+          python -m pip install --disable-pip-version-check pillow
 
       - name: Fetch survey JSON and all institution images
         shell: bash
