@@ -1,0 +1,184 @@
+name: Commons symbol candidates for Seminar 1
+
+on:
+  push:
+    branches:
+      - quiz-symbols-v071
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check requests pillow
+      - name: Resolve Wikimedia Commons candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/candidates export/sheets
+          cat > /tmp/collect.py <<'PY'
+          import html, io, json, re, time, unicodedata
+          from pathlib import Path
+          import requests
+          from PIL import Image, ImageOps, ImageDraw, ImageFont
+
+          API = 'https://commons.wikimedia.org/w/api.php'
+          UA = 'RUDN-GMU-Educational-Platform/0.7.1 (institution-symbol-audit; contact: educational project)'
+          session = requests.Session(); session.headers['User-Agent'] = UA
+          specs = [
+            {'key':'state_duma','label':'Государственная Дума','exact':['Emblem gosduma.svg'],'queries':['Эмблема Государственной Думы','State Duma emblem']},
+            {'key':'supreme_court_rf','label':'Верховный Суд РФ','exact':['Emblem of the Supreme Court of Russia.svg'],'queries':['Эмблема Верховного Суда России','Supreme Court Russia emblem']},
+            {'key':'moscow_government','label':'Правительство Москвы / Mos.ru','exact':['Mos.ru logo.png'],'queries':['Правительство Москвы логотип','Mos.ru logo']},
+            {'key':'mfa_russia','label':'МИД России','exact':['Emblem of Ministry of Foreign Affairs of Russia.svg'],'queries':['Эмблема МИД России','Ministry Foreign Affairs Russia emblem']},
+            {'key':'russia_coa','label':'Государственный герб РФ','exact':['Coat of Arms of the Russian Federation.svg','Coat of Arms of the Russian Federation 2.svg'],'queries':['Государственный герб Российской Федерации','Coat of arms Russian Federation']},
+            {'key':'government_rf','label':'Правительство РФ','exact':['Government.ru logo.svg'],'queries':['Government.ru logo','Правительство России логотип']},
+            {'key':'minfin_rf','label':'Минфин России','exact':['Emblem of the Ministry of Finance of Russia.svg','Digital emblem of the Ministry of Finance (Russia).svg'],'queries':['Эмблема Министерства финансов России','Ministry Finance Russia emblem']},
+            {'key':'fns_rf','label':'ФНС России','exact':['Emblem of the Federal Tax Service.svg'],'queries':['Эмблема Федеральной налоговой службы','Federal Tax Service Russia emblem']},
+            {'key':'constitutional_court_rf','label':'Конституционный Суд РФ','exact':['Emblem of the Constitutional Court of Russia.svg'],'queries':['Эмблема Конституционного Суда России','Constitutional Court Russia emblem']},
+            {'key':'federation_council','label':'Совет Федерации','exact':['Emblem of the Federation Council of Russia (simple).svg','Emblem of the Federation Council of Russia.png'],'queries':['Эмблема Совета Федерации России','Federation Council Russia emblem']},
+            {'key':'mvd_rf','label':'МВД России','exact':['Emblem of the Ministry of Internal Affairs.svg'],'queries':['Эмблема МВД России','Ministry Internal Affairs Russia emblem']},
+            {'key':'minhealth_rf','label':'Минздрав России','exact':['Emblem of Ministry of Health of Russia.svg'],'queries':['Эмблема Минздрава России','Ministry Health Russia emblem']},
+            {'key':'minobrnauki_rf','label':'Минобрнауки России','exact':['Emblem of the Ministry of Science and Higher Education.svg','New Emblem of the Ministry of science and higher education of the Russian Federation.svg'],'queries':['Эмблема Минобрнауки России','Ministry Science Higher Education Russia emblem']},
+            {'key':'judicial_department','label':'Судебный департамент','exact':['Emblem of the Judicial Department.svg'],'queries':['Эмблема Судебного департамента','Judicial Department Russia emblem']},
+            {'key':'fas_rf','label':'ФАС России','exact':['Embllem of the Federal Antimonopoly Service.svg','Emblem of Federal Antimonopoly Service.png'],'queries':['Эмблема ФАС России','Federal Antimonopoly Service Russia emblem']},
+            {'key':'treasury_rf','label':'Федеральное казначейство','exact':['Геральдический знак-эмблема Федерального казначейства.png','Roskazna.png'],'queries':['Эмблема Федерального казначейства','Federal Treasury Russia emblem']},
+            {'key':'rosstat','label':'Росстат','exact':['Rosstat logo.svg','Логотип Росстата.svg'],'queries':['Росстат логотип','Rosstat logo']},
+            {'key':'rosselkhoznadzor','label':'Россельхознадзор','exact':['Emblem of Rosselkhoznadzor.svg','Эмблема Россельхознадзора.svg'],'queries':['Эмблема Россельхознадзора','Rosselkhoznadzor emblem']},
+            {'key':'cec_rf','label':'Избирательная система / ЦИК России','exact':['Emblem of the CEC of Russia.svg'],'queries':['Эмблема ЦИК России','Central Election Commission Russia emblem']},
+            {'key':'president_rf','label':'Президент России','exact':['Emblem of the President of Russia.svg'],'queries':['Эмблема Президента России','President of Russia emblem']},
+            {'key':'moscow_city_duma','label':'Московская городская Дума','exact':['Moscow City Duma Logo.png'],'queries':['Логотип Московской городской Думы','Moscow City Duma logo']},
+            {'key':'tatarstan','label':'Республика Татарстан','exact':['Coat of arms of Tatarstan.svg'],'queries':['Герб Татарстана','Coat of arms Tatarstan']},
+            {'key':'yekaterinburg','label':'Екатеринбург','exact':['Coat of Arms of Yekaterinburg (Sverdlovsk oblast).svg'],'queries':['Герб Екатеринбурга','Coat of arms Yekaterinburg']},
+            {'key':'sverdlovsk_oblast','label':'Свердловская область','exact':['Coat of Arms of Sverdlovsk oblast.svg'],'queries':['Герб Свердловской области','Coat of arms Sverdlovsk Oblast']},
+            {'key':'novosibirsk_city','label':'Новосибирск','exact':['Coat of Arms of Novosibirsk.svg'],'queries':['Герб Новосибирска','Coat of arms Novosibirsk']},
+            {'key':'novosibirsk_oblast','label':'Новосибирская область','exact':['Coat of arms of Novosibirsk Oblast.svg'],'queries':['Герб Новосибирской области','Coat of arms Novosibirsk Oblast']},
+            {'key':'omsk_oblast','label':'Омская область','exact':['Coat of arms of Omsk Oblast.svg'],'queries':['Герб Омской области','Coat of arms Omsk Oblast']},
+            {'key':'nizhny_novgorod','label':'Нижний Новгород','exact':['Coat of Arms of Nizhny Novgorod.svg'],'queries':['Герб Нижнего Новгорода','Coat of arms Nizhny Novgorod']},
+            {'key':'kurgan_oblast','label':'Курганская область','exact':['Coat of Arms of Kurgan Oblast.svg'],'queries':['Герб Курганской области','Coat of arms Kurgan Oblast']},
+            {'key':'chelyabinsk_oblast','label':'Челябинская область','exact':['Coat of Arms of Chelyabinsk oblast.svg'],'queries':['Герб Челябинской области','Coat of arms Chelyabinsk Oblast']},
+            {'key':'chelyabinsk_city','label':'Челябинск','exact':['Coat of Arms of Chelyabinsk.svg'],'queries':['Герб Челябинска','Coat of arms Chelyabinsk']},
+            {'key':'krasnodar_city','label':'Краснодар','exact':['Coat of Arms of Krasnodar.svg'],'queries':['Герб Краснодара','Coat of arms Krasnodar city']},
+            {'key':'krasnodar_krai','label':'Краснодарский край','exact':['Coat of arms of Krasnodar Krai.svg'],'queries':['Герб Краснодарского края','Coat of arms Krasnodar Krai']},
+            {'key':'perm_krai','label':'Пермский край','exact':['Coat of Arms of Perm Krai.svg'],'queries':['Герб Пермского края','Coat of arms Perm Krai']},
+            {'key':'dpr','label':'Донецкая Народная Республика','exact':['Coat of Arms of the Donetsk People Republic.svg','Coat of arms of the Donetsk People\'s Republic.svg'],'queries':['Герб Донецкой Народной Республики','Donetsk People Republic coat of arms']},
+            {'key':'saint_petersburg','label':'Санкт-Петербург','exact':['Coat of Arms of Saint Petersburg.svg','Coat of arms of Saint Petersburg.svg'],'queries':['Герб Санкт-Петербурга','Coat of arms Saint Petersburg']},
+            {'key':'rostov_oblast','label':'Ростовская область','exact':['Coat of Arms of Rostov oblast.svg'],'queries':['Герб Ростовской области','Coat of arms Rostov Oblast']},
+            {'key':'pervouralsk','label':'Первоуральск','exact':['Coat of Arms of Pervouralsk (Sverdlovsk oblast).svg'],'queries':['Герб Первоуральска','Coat of arms Pervouralsk']},
+            {'key':'troitsk_moscow','label':'Троицк (Москва)','exact':['Coat of arms of Troitsk (Moscow).svg'],'queries':['Герб Троицка Москва','Coat of arms Troitsk Moscow']},
+            {'key':'samara_city','label':'Самара','exact':['Coat of Arms of Samara.svg'],'queries':['Герб Самары','Coat of arms Samara']},
+            {'key':'irkutsk_oblast','label':'Иркутская область','exact':['Coat of arms of Irkutsk Oblast.svg'],'queries':['Герб Иркутской области','Coat of arms Irkutsk Oblast']},
+            {'key':'sirius','label':'Федеральная территория «Сириус»','exact':['Coat of arms of Sirius.svg','Logo of Sirius federal territory.svg'],'queries':['Федеральная территория Сириус логотип','Sirius federal territory logo coat of arms']},
+          ]
+
+          def norm(s):
+              s = unicodedata.normalize('NFKD', s).casefold()
+              s = re.sub(r'[^a-zа-я0-9]+', ' ', s)
+              return ' '.join(s.split())
+
+          def imageinfo(title):
+              r=session.get(API,params={'action':'query','format':'json','formatversion':2,'titles':'File:'+title.removeprefix('File:'),'prop':'imageinfo','iiprop':'url|size|mime|extmetadata','iiurlwidth':640,'iiextmetadatafilter':'LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName'},timeout=30)
+              r.raise_for_status(); p=r.json()['query']['pages'][0]
+              if p.get('missing') or not p.get('imageinfo'): return None
+              return {'title':p['title'],**p['imageinfo'][0]}
+
+          def search(q):
+              params={'action':'query','format':'json','formatversion':2,'generator':'search','gsrnamespace':6,'gsrlimit':12,'gsrsearch':q,'prop':'imageinfo','iiprop':'url|size|mime|extmetadata','iiurlwidth':640,'iiextmetadatafilter':'LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName'}
+              r=session.get(API,params=params,timeout=30); r.raise_for_status()
+              return [{'title':p['title'],**p['imageinfo'][0]} for p in r.json().get('query',{}).get('pages',[]) if p.get('imageinfo')]
+
+          def score(c, spec):
+              t=norm(c['title']); label=norm(spec['label']); s=0
+              mime=c.get('mime','')
+              if mime=='image/svg+xml': s+=25
+              elif mime=='image/png': s+=15
+              elif mime.startswith('image/'): s+=5
+              for word in set(label.split()):
+                  if len(word)>3 and word in t: s+=4
+              for good in ('emblem','coat of arms','logo','герб','эмблем','логотип'):
+                  if good in t: s+=8
+              for bad in ('flag','флаг','map','карта','district','округ выбора','historical','old ','stamp','coin','medal','uniform','rank insignia'):
+                  if bad in t: s-=25
+              if c.get('thumburl'): s+=5
+              return s
+
+          out=[]
+          for spec in specs:
+              candidates=[]; seen=set()
+              for title in spec.get('exact',[]):
+                  try: c=imageinfo(title)
+                  except Exception: c=None
+                  if c and c['title'] not in seen:
+                      c['origin']='exact'; candidates.append(c); seen.add(c['title'])
+              for q in spec['queries']:
+                  try: found=search(q)
+                  except Exception: found=[]
+                  for c in found:
+                      if c['title'] in seen: continue
+                      c['origin']='search:'+q; candidates.append(c); seen.add(c['title'])
+              for c in candidates: c['score']=score(c,spec)
+              candidates.sort(key=lambda x:x['score'], reverse=True)
+              row={'key':spec['key'],'label':spec['label'],'chosen':None,'candidates':[]}
+              for idx,c in enumerate(candidates[:8]):
+                  meta=c.get('extmetadata') or {}
+                  item={'title':c['title'],'score':c['score'],'origin':c['origin'],'mime':c.get('mime'),'width':c.get('width'),'height':c.get('height'),'url':c.get('url'),'thumburl':c.get('thumburl') or c.get('url'),'descriptionurl':c.get('descriptionurl'),'license':(meta.get('LicenseShortName') or {}).get('value',''),'license_url':(meta.get('LicenseUrl') or {}).get('value',''),'artist':(meta.get('Artist') or {}).get('value',''),'credit':(meta.get('Credit') or {}).get('value',''),'description':(meta.get('ImageDescription') or {}).get('value','')}
+                  row['candidates'].append(item)
+                  try:
+                      b=session.get(item['thumburl'],timeout=45).content
+                      p=Path('export/candidates')/f"{spec['key']}__{idx+1}.png"
+                      with Image.open(io.BytesIO(b)) as im:
+                          im=ImageOps.exif_transpose(im).convert('RGBA')
+                          im.save(p,'PNG',optimize=True)
+                      item['local']=str(p.relative_to('export'))
+                  except Exception as e:
+                      item['download_error']=str(e)
+              if row['candidates']: row['chosen']=row['candidates'][0]
+              out.append(row); time.sleep(.15)
+
+          Path('export/candidates.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),'utf-8')
+          font=ImageFont.load_default(); W=1800; cell_w=900; cell_h=300
+          for page_idx,start in enumerate(range(0,len(out),8),1):
+              chunk=out[start:start+8]
+              sheet=Image.new('RGB',(W,((len(chunk)+1)//2)*cell_h),'white'); draw=ImageDraw.Draw(sheet)
+              for j,row in enumerate(chunk):
+                  x=(j%2)*cell_w; y=(j//2)*cell_h
+                  draw.rectangle((x,y,x+cell_w-1,y+cell_h-1),outline='#999',width=1)
+                  draw.text((x+12,y+8),f"{row['key']} — {row['label']}",fill='black',font=font)
+                  for k,c in enumerate(row['candidates'][:3]):
+                      px=x+12+k*290; py=y+38
+                      local=c.get('local')
+                      if local:
+                          with Image.open(Path('export')/local) as im:
+                              thumb=ImageOps.contain(im.convert('RGBA'),(260,190),Image.Resampling.LANCZOS)
+                              canvas=Image.new('RGBA',(260,190),(245,247,250,255)); canvas.alpha_composite(thumb,((260-thumb.width)//2,(190-thumb.height)//2))
+                              sheet.paste(canvas.convert('RGB'),(px,py))
+                      title=c['title'].removeprefix('File:'); lines=[]; line=''
+                      for word in title.split():
+                          cand=(line+' '+word).strip()
+                          if draw.textlength(cand,font=font)>260 and line: lines.append(line); line=word
+                          else: line=cand
+                      if line: lines.append(line)
+                      draw.multiline_text((px,py+195),f"#{k+1} score {c['score']}\n"+'\n'.join(lines[:3]),fill='black',font=font,spacing=2)
+              sheet.save(Path('export/sheets')/f'candidates-{page_idx}.jpg',quality=91)
+
+          parts=['<!doctype html><meta charset="utf-8"><title>Commons symbol candidates</title><style>body{font-family:Arial;margin:24px}section{border:1px solid #ccc;padding:16px;margin:16px 0}.c{display:flex;gap:12px;flex-wrap:wrap}.card{width:240px}.card img{width:220px;height:180px;object-fit:contain;background:#f3f5f7}.meta{font-size:12px}</style><h1>Кандидаты символов</h1>']
+          for row in out:
+              parts.append(f'<section><h2>{html.escape(row["label"])} <code>{row["key"]}</code></h2><div class="c">')
+              for c in row['candidates'][:5]:
+                  parts.append(f'<div class="card"><img src="{html.escape(c.get("local", ""))}"><b>{html.escape(c["title"])}</b><div class="meta">score {c["score"]}<br>{html.escape(c.get("license", ""))}</div></div>')
+              parts.append('</div></section>')
+          Path('export/index.html').write_text(''.join(parts),'utf-8')
+          PY
+          python /tmp/collect.py
+          cd export && zip -r -9 ../commons-symbol-candidates.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: commons-symbol-candidates
+          path: commons-symbol-candidates.zip
+          if-no-files-found: error
+          retention-days: 3
