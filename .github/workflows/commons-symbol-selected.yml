@@ -1,0 +1,209 @@
+name: Curated Commons symbols for Seminar 1
+
+on:
+  push:
+    branches:
+      - quiz-symbols-v071
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check requests pillow
+      - name: Resolve, validate and rasterize symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/assets export/sheets
+          cat > /tmp/collect_selected.py <<'PY'
+          import html, io, json, re, time, unicodedata
+          from pathlib import Path
+          import requests
+          from PIL import Image, ImageOps, ImageDraw, ImageFont
+
+          API = 'https://commons.wikimedia.org/w/api.php'
+          UA = 'RUDN-GMU-Educational-Platform/0.7.1 (educational symbol catalogue; contact: https://github.com/Arseniy24RUS)'
+          S = requests.Session(); S.headers.update({'User-Agent': UA, 'Accept-Language': 'ru,en;q=0.8'})
+
+          SPECS = [
+            ('state_duma','Государственная Дума',['Emblem gosduma.svg'],['Эмблема Государственной Думы','State Duma emblem']),
+            ('supreme_court_rf','Верховный Суд РФ',['Emblem of the Supreme Court of Russia.svg'],['Supreme Court Russia emblem']),
+            ('moscow_government','Правительство Москвы / Mos.ru',['Mos.ru logo.png'],['Mos.ru logo','Правительство Москвы логотип']),
+            ('mfa_russia','МИД России',['Emblem of Ministry of Foreign Affairs of Russia.svg'],['Ministry Foreign Affairs Russia emblem']),
+            ('russia_coa','Государственный герб РФ',['Coat of Arms of the Russian Federation.svg','Coat of Arms of the Russian Federation 2.svg'],['Coat of arms Russian Federation']),
+            ('government_rf','Правительство РФ',['Government.ru logo.svg','Government.ru logo.png'],['Government.ru logo']),
+            ('minfin_rf','Минфин России',['Digital emblem of the Ministry of Finance (Russia).svg','Emblem of the Ministry of Finance of Russia.svg'],['Ministry Finance Russia emblem']),
+            ('fns_rf','ФНС России',['Emblem of the Federal Tax Service.svg'],['Federal Tax Service Russia emblem']),
+            ('constitutional_court_rf','Конституционный Суд РФ',['Emblem of the Constitutional Court of Russia.svg'],['Constitutional Court Russia emblem']),
+            ('federation_council','Совет Федерации',['Emblem of the Federation Council of Russia (simple).svg','Emblem of the Federation Council of Russia.png'],['Federation Council Russia emblem']),
+            ('mvd_rf','МВД России',['Emblem of the Ministry of Internal Affairs.svg'],['Ministry Internal Affairs Russia emblem']),
+            ('minhealth_rf','Минздрав России',['Emblem of Ministry of Health of Russia.svg'],['Ministry Health Russia emblem']),
+            ('minobrnauki_rf','Минобрнауки России',['Emblem of the Ministry of Science and Higher Education.svg','New Emblem of the Ministry of science and higher education of the Russian Federation.svg'],['Ministry Science Higher Education Russia emblem']),
+            ('judicial_department','Судебный департамент',['Emblem of the Judicial Department.svg'],['Judicial Department Russia emblem']),
+            ('fas_rf','ФАС России',['Embllem of the Federal Antimonopoly Service.svg','Emblem of Federal Antimonopoly Service.png'],['Federal Antimonopoly Service Russia emblem']),
+            ('treasury_rf','Федеральное казначейство',['Геральдический знак-эмблема Федерального казначейства.png','Roskazna.png'],['Эмблема Федерального казначейства','Federal Treasury Russia emblem']),
+            ('rosstat','Росстат',['Rosstat logo.svg','Логотип Росстата.svg'],['Rosstat logo','Росстат логотип']),
+            ('rosselkhoznadzor','Россельхознадзор',['Emblem of Rosselkhoznadzor.svg','Эмблема Россельхознадзора.svg'],['Rosselkhoznadzor emblem','Россельхознадзор эмблема']),
+            ('cec_rf','Избирательная система / ЦИК России',['Emblem of the CEC of Russia.svg'],['Central Election Commission Russia emblem']),
+            ('president_rf','Президент России',['Emblem of the President of Russia.svg'],['President of Russia emblem']),
+            ('moscow_city_duma','Московская городская Дума',['Moscow City Duma Logo.png'],['Moscow City Duma logo']),
+            ('tatarstan','Республика Татарстан',['Coat of arms of Tatarstan.svg'],['Coat of arms Tatarstan']),
+            ('yekaterinburg','Екатеринбург',['Coat of Arms of Yekaterinburg (Sverdlovsk oblast).svg'],['Coat of arms Yekaterinburg']),
+            ('sverdlovsk_oblast','Свердловская область',['Coat of Arms of Sverdlovsk oblast.svg','Coat of arms of Sverdlovsk Oblast.svg'],['Coat of arms Sverdlovsk Oblast']),
+            ('novosibirsk_city','Новосибирск',['Coat of Arms of Novosibirsk.svg'],['Coat of arms Novosibirsk city']),
+            ('novosibirsk_oblast','Новосибирская область',['Coat of arms of Novosibirsk Oblast.svg'],['Coat of arms Novosibirsk Oblast']),
+            ('omsk_oblast','Омская область',['Coat of arms of Omsk Oblast.svg'],['Coat of arms Omsk Oblast']),
+            ('nizhny_novgorod','Нижний Новгород',['Coat of Arms of Nizhny Novgorod.svg'],['Coat of arms Nizhny Novgorod']),
+            ('kurgan_oblast','Курганская область',['Coat of Arms of Kurgan Oblast.svg','Coat of arms of Kurgan Oblast.svg'],['Coat of arms Kurgan Oblast']),
+            ('chelyabinsk_oblast','Челябинская область',['Coat of arms of Chelyabinsk Oblast.svg','Coat of Arms of Chelyabinsk oblast.svg'],['Coat of arms Chelyabinsk Oblast']),
+            ('chelyabinsk_city','Челябинск',['Coat of Arms of Chelyabinsk.svg'],['Coat of arms Chelyabinsk city']),
+            ('krasnodar_city','Краснодар',['Coat of Arms of Krasnodar.svg'],['Coat of arms Krasnodar city']),
+            ('krasnodar_krai','Краснодарский край',['Coat of arms of Krasnodar Krai.svg','Coat of Arms of Krasnodar Krai.svg'],['Coat of arms Krasnodar Krai']),
+            ('perm_krai','Пермский край',['Coat of Arms of Perm Krai.svg','Coat of arms of Perm Krai.svg'],['Coat of arms Perm Krai']),
+            ('dpr','Донецкая Народная Республика',["Coat of Arms of the Donetsk People's Republic.svg",'Coat of Arms of the Donetsk People Republic.svg'],['Donetsk People Republic coat of arms','Герб Донецкой Народной Республики']),
+            ('saint_petersburg','Санкт-Петербург',['Coat of Arms of Saint Petersburg.svg','Coat of arms of Saint Petersburg.svg'],['Coat of arms Saint Petersburg']),
+            ('rostov_oblast','Ростовская область',['Coat of Arms of Rostov oblast.svg','Coat of arms of Rostov Oblast.svg'],['Coat of arms Rostov Oblast']),
+            ('pervouralsk','Первоуральск',['Coat of Arms of Pervouralsk (Sverdlovsk oblast).svg'],['Coat of arms Pervouralsk']),
+            ('troitsk_moscow','Троицк (Москва)',['Coat of arms of Troitsk (Moscow).svg','Coat of Arms of Troitsk (Moscow).svg'],['Coat of arms Troitsk Moscow']),
+            ('samara_city','Самара',['Coat of Arms of Samara.svg'],['Coat of arms Samara city']),
+            ('irkutsk_oblast','Иркутская область',['Coat of arms of Irkutsk Oblast.svg','Coat of Arms of Irkutsk oblast.svg'],['Coat of arms Irkutsk Oblast']),
+            ('sirius','Федеральная территория «Сириус»',['Logo of Sirius federal territory.svg','Coat of arms of Sirius.svg'],['Sirius federal territory logo','Федеральная территория Сириус логотип']),
+          ]
+
+          def api(params, attempts=8):
+              params = {'format':'json','formatversion':2,'maxlag':5, **params}
+              delay = 1.0
+              for attempt in range(attempts):
+                  try:
+                      r=S.get(API,params=params,timeout=45)
+                      if r.status_code in (429,500,502,503,504):
+                          raise RuntimeError(f'HTTP {r.status_code}')
+                      r.raise_for_status(); data=r.json()
+                      if 'error' in data:
+                          raise RuntimeError(str(data['error']))
+                      return data
+                  except Exception as exc:
+                      if attempt == attempts-1: raise
+                      time.sleep(delay); delay=min(delay*1.8,12)
+
+          def info(title):
+              data=api({'action':'query','redirects':1,'titles':'File:'+title.removeprefix('File:'),'prop':'imageinfo','iiprop':'url|size|mime|extmetadata','iiurlwidth':1000,'iiextmetadatafilter':'LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName'})
+              pages=data.get('query',{}).get('pages',[])
+              if not pages: return None
+              p=pages[0]
+              if p.get('missing') or not p.get('imageinfo'): return None
+              return {'title':p['title'],**p['imageinfo'][0]}
+
+          def search(query):
+              data=api({'action':'query','generator':'search','gsrnamespace':6,'gsrlimit':12,'gsrsearch':query,'prop':'imageinfo','iiprop':'url|size|mime|extmetadata','iiurlwidth':1000,'iiextmetadatafilter':'LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName'})
+              return [{'title':p['title'],**p['imageinfo'][0]} for p in data.get('query',{}).get('pages',[]) if p.get('imageinfo')]
+
+          def norm(s):
+              s=unicodedata.normalize('NFKD',s).casefold()
+              return ' '.join(re.sub(r'[^a-zа-я0-9]+',' ',s).split())
+
+          def score(c,label):
+              t=norm(c['title']); l=norm(label); value=0
+              if c.get('mime')=='image/svg+xml': value+=25
+              elif c.get('mime')=='image/png': value+=14
+              for w in set(l.split()):
+                  if len(w)>3 and w in t: value+=4
+              for w in ('emblem','coat of arms','logo','герб','эмблем','логотип'):
+                  if w in t: value+=9
+              for w in ('flag','флаг','map','карта','district map','historical','old ','stamp','coin','medal','uniform','rank insignia','transport'):
+                  if w in t: value-=28
+              return value
+
+          selected=[]
+          for index,(key,label,exact,queries) in enumerate(SPECS,1):
+              candidates=[]; seen=set()
+              for title in exact:
+                  try: c=info(title)
+                  except Exception as e: c=None
+                  if c and c['title'] not in seen:
+                      c['origin']='exact'; c['score']=1000-len(candidates); candidates.append(c); seen.add(c['title'])
+                  time.sleep(.45)
+              if not candidates:
+                  for q in queries:
+                      try: found=search(q)
+                      except Exception: found=[]
+                      for c in found:
+                          if c['title'] in seen: continue
+                          c['origin']='search:'+q; c['score']=score(c,label); candidates.append(c); seen.add(c['title'])
+                      if candidates: break
+                      time.sleep(1.0)
+              candidates.sort(key=lambda c:c['score'],reverse=True)
+              if not candidates:
+                  selected.append({'key':key,'label':label,'error':'no candidate'}); continue
+              c=candidates[0]; meta=c.get('extmetadata') or {}
+              item={'key':key,'label':label,'title':c['title'],'origin':c['origin'],'score':c['score'],'mime':c.get('mime'),'width':c.get('width'),'height':c.get('height'),'url':c.get('url'),'thumburl':c.get('thumburl') or c.get('url'),'descriptionurl':c.get('descriptionurl'),'license':(meta.get('LicenseShortName') or {}).get('value',''),'license_url':(meta.get('LicenseUrl') or {}).get('value',''),'artist':(meta.get('Artist') or {}).get('value',''),'credit':(meta.get('Credit') or {}).get('value',''),'description':(meta.get('ImageDescription') or {}).get('value','')}
+              try:
+                  r=S.get(item['thumburl'],timeout=60); r.raise_for_status()
+                  with Image.open(io.BytesIO(r.content)) as im:
+                      im=ImageOps.exif_transpose(im).convert('RGBA')
+                      bbox=im.getbbox()
+                      if bbox: im=im.crop(bbox)
+                      im.thumbnail((900,900),Image.Resampling.LANCZOS)
+                      canvas=Image.new('RGBA',(960,960),(0,0,0,0))
+                      canvas.alpha_composite(im,((960-im.width)//2,(960-im.height)//2))
+                      out=Path('export/assets')/f'{key}.webp'
+                      canvas.save(out,'WEBP',lossless=True,method=6)
+                      item['local_file']=str(out.relative_to('export'))
+                      item['output_width']=960; item['output_height']=960
+              except Exception as exc:
+                  item['error']='download/render: '+str(exc)
+              item['alternatives']=[{'title':x['title'],'score':x['score'],'origin':x['origin'],'descriptionurl':x.get('descriptionurl')} for x in candidates[1:6]]
+              selected.append(item)
+              time.sleep(.75)
+
+          Path('export/selected.json').write_text(json.dumps(selected,ensure_ascii=False,indent=2),'utf-8')
+          ok=[x for x in selected if x.get('local_file')]
+          missing=[x for x in selected if not x.get('local_file')]
+          Path('export/summary.json').write_text(json.dumps({'total':len(selected),'downloaded':len(ok),'missing':[x['key'] for x in missing]},ensure_ascii=False,indent=2),'utf-8')
+
+          font=ImageFont.load_default(); cols=5; cw=360; ch=280
+          for page,start in enumerate(range(0,len(selected),20),1):
+              chunk=selected[start:start+20]; rows=(len(chunk)+cols-1)//cols
+              sheet=Image.new('RGB',(cols*cw,rows*ch),'white'); draw=ImageDraw.Draw(sheet)
+              for j,item in enumerate(chunk):
+                  x=(j%cols)*cw; y=(j//cols)*ch
+                  draw.rectangle((x,y,x+cw-1,y+ch-1),outline='#ccd2da')
+                  if item.get('local_file'):
+                      with Image.open(Path('export')/item['local_file']) as im:
+                          thumb=ImageOps.contain(im.convert('RGBA'),(300,205),Image.Resampling.LANCZOS)
+                          bg=Image.new('RGBA',(320,210),(245,247,250,255)); bg.alpha_composite(thumb,((320-thumb.width)//2,(210-thumb.height)//2))
+                          sheet.paste(bg.convert('RGB'),(x+20,y+8))
+                  title=f"{start+j+1}. {item['label']}"
+                  words=title.split(); lines=[]; line=''
+                  for word in words:
+                      cand=(line+' '+word).strip()
+                      if draw.textlength(cand,font=font)>330 and line: lines.append(line); line=word
+                      else: line=cand
+                  if line: lines.append(line)
+                  draw.multiline_text((x+12,y+222),'\n'.join(lines[:3]),fill='black',font=font,spacing=2)
+                  if item.get('error'): draw.text((x+12,y+265),'ERROR',fill='red',font=font)
+              sheet.save(Path('export/sheets')/f'selected-{page}.jpg',quality=92)
+
+          parts=['<!doctype html><meta charset="utf-8"><title>Selected Commons symbols</title><style>body{font-family:Arial;margin:24px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}.card{border:1px solid #ccc;padding:14px}.card img{width:100%;height:190px;object-fit:contain;background:#f4f6f8}.meta{font-size:12px}</style><h1>Отобранные символы</h1><div class="grid">']
+          for item in selected:
+              img=item.get('local_file',''); src=html.escape(img)
+              parts.append(f'<article class="card"><img src="{src}"><h2>{html.escape(item["label"])}</h2><div>{html.escape(item.get("title",""))}</div><div class="meta">{html.escape(item.get("license",""))}<br>{html.escape(item.get("descriptionurl","") or "")}</div></article>')
+          parts.append('</div>'); Path('export/index.html').write_text(''.join(parts),'utf-8')
+          if len(ok) < 38:
+              raise SystemExit(f'Only {len(ok)} of {len(selected)} symbol groups resolved')
+          PY
+          python /tmp/collect_selected.py
+          cd export && zip -r -9 ../commons-symbol-selected.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: commons-symbol-selected
+          path: commons-symbol-selected.zip
+          if-no-files-found: error
+          retention-days: 3
