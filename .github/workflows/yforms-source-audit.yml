@@ -23,7 +23,6 @@ jobs:
       - name: Prepare audit workspace
         shell: bash
         run: |
-          set -euo pipefail
           mkdir -p audit/curl audit/browser/responses
           for kind in public preview; do
             if [ "$kind" = public ]; then
@@ -45,6 +44,7 @@ jobs:
           npx playwright install --with-deps chromium >/dev/null
 
       - name: Capture rendered pages and network responses
+        continue-on-error: true
         shell: bash
         run: |
           cat > audit/audit.mjs <<'JS'
@@ -64,7 +64,7 @@ jobs:
               locale: 'ru-RU',
               viewport: { width: 1440, height: 1000 },
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
-              recordHar: { path: `audit/browser/${name}.har`, mode: 'full', content: 'embed' },
+              recordHar: { path: `audit/browser/${name}.har`, mode: 'full' },
             });
             const page = await context.newPage();
             const responseIndex = [];
@@ -90,7 +90,6 @@ jobs:
                 responseIndex.push({ url: responseUrl, status: response.status(), contentType: ct, filename, size: body.length });
               } catch {}
             });
-            let error = null;
             try {
               await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
               await page.waitForTimeout(12000);
@@ -107,8 +106,7 @@ jobs:
               }));
               await fs.writeFile(`audit/browser/${name}-dom.json`, JSON.stringify(info, null, 2), 'utf8');
             } catch (e) {
-              error = String(e?.stack || e);
-              await fs.writeFile(`audit/browser/${name}-error.txt`, error, 'utf8');
+              await fs.writeFile(`audit/browser/${name}-error.txt`, String(e?.stack || e), 'utf8');
             }
             await fs.writeFile(`audit/browser/${name}-responses.json`, JSON.stringify(responseIndex, null, 2), 'utf8');
             await context.close();
@@ -118,11 +116,13 @@ jobs:
           node audit/audit.mjs
 
       - name: Inventory artifact
+        if: always()
         shell: bash
         run: |
           find audit -type f -printf '%P\t%s bytes\n' | sort > audit/inventory.txt
 
       - name: Upload audit
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: yforms-source-audit
