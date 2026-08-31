@@ -35,36 +35,44 @@ jobs:
               -D "audit/curl/${kind}-headers.txt" \
               "$url" -o "audit/curl/${kind}.html" || true
           done
+          command -v google-chrome-stable || command -v google-chrome || command -v chromium || true
 
-      - name: Install Playwright
+      - name: Install Playwright library
         shell: bash
         run: |
           npm init -y >/dev/null 2>&1
-          npm install playwright@1.55.0 >/dev/null
-          npx playwright install --with-deps chromium >/dev/null
+          npm install playwright-core@1.55.0 >/dev/null
 
       - name: Capture rendered pages and network responses
         continue-on-error: true
         shell: bash
         run: |
           cat > audit/audit.mjs <<'JS'
-          import { chromium } from 'playwright';
+          import { chromium } from 'playwright-core';
           import fs from 'node:fs/promises';
           import path from 'node:path';
           import crypto from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+
+          const executablePath = (() => {
+            for (const cmd of ['google-chrome-stable', 'google-chrome', 'chromium']) {
+              try { return execFileSync('which', [cmd], { encoding: 'utf8' }).trim(); } catch {}
+            }
+            throw new Error('System Chrome executable not found');
+          })();
 
           const targets = [
             ['public', 'https://forms.yandex.ru/u/68c075f9e010db424bd32329/'],
             ['preview', 'https://forms.yandex.ru/u/preview/68c075f9e010db424bd32329/'],
           ];
 
-          const browser = await chromium.launch({ headless: true });
+          const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
           for (const [name, url] of targets) {
             const context = await browser.newContext({
               locale: 'ru-RU',
               viewport: { width: 1440, height: 1000 },
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
-              recordHar: { path: `audit/browser/${name}.har`, mode: 'full' },
+              recordHar: { path: `audit/browser/${name}.har`, mode: 'full', content: 'embed' },
             });
             const page = await context.newPage();
             const responseIndex = [];
@@ -72,11 +80,11 @@ jobs:
               const headers = await response.allHeaders().catch(() => ({}));
               const ct = String(headers['content-type'] || '').toLowerCase();
               const responseUrl = response.url();
-              const interesting = ct.includes('json') || /survey|form|question|answer|image|media|gateway|api/i.test(responseUrl);
+              const interesting = ct.includes('json') || ct.startsWith('image/') || /survey|form|question|answer|image|media|gateway|api|avatars\.mds/i.test(responseUrl);
               if (!interesting) return;
               try {
                 const body = await response.body();
-                if (!body.length || body.length > 25_000_000) return;
+                if (!body.length || body.length > 30_000_000) return;
                 const sha = crypto.createHash('sha256').update(responseUrl).digest('hex').slice(0, 16);
                 let ext = '.bin';
                 if (ct.includes('json')) ext = '.json';
@@ -85,6 +93,7 @@ jobs:
                 else if (ct.includes('image/jpeg')) ext = '.jpg';
                 else if (ct.includes('image/png')) ext = '.png';
                 else if (ct.includes('image/webp')) ext = '.webp';
+                else if (ct.includes('image/svg')) ext = '.svg';
                 const filename = `${name}-${sha}${ext}`;
                 await fs.writeFile(path.join('audit/browser/responses', filename), body);
                 responseIndex.push({ url: responseUrl, status: response.status(), contentType: ct, filename, size: body.length });
@@ -92,16 +101,16 @@ jobs:
             });
             try {
               await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
-              await page.waitForTimeout(12000);
+              await page.waitForTimeout(20000);
               await page.screenshot({ path: `audit/browser/${name}.png`, fullPage: true });
               await fs.writeFile(`audit/browser/${name}.html`, await page.content(), 'utf8');
               const info = await page.evaluate(() => ({
                 title: document.title,
                 url: location.href,
                 lang: document.documentElement.lang,
-                text: document.body?.innerText?.slice(0, 100000) || '',
+                text: document.body?.innerText?.slice(0, 200000) || '',
                 images: Array.from(document.images).map((img) => ({ src: img.currentSrc || img.src, alt: img.alt, width: img.naturalWidth, height: img.naturalHeight })),
-                scripts: Array.from(document.scripts).map((s) => s.src || (s.textContent || '').slice(0, 500)),
+                scripts: Array.from(document.scripts).map((s) => s.src || (s.textContent || '').slice(0, 1000)),
                 globals: Object.keys(window).filter((key) => /form|survey|question|data|redux|state/i.test(key)).sort(),
               }));
               await fs.writeFile(`audit/browser/${name}-dom.json`, JSON.stringify(info, null, 2), 'utf8');
