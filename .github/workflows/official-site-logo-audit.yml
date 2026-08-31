@@ -1,0 +1,98 @@
+name: Official-site logo audit
+
+on:
+  push:
+    branches:
+      - quiz-symbols-v071
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4 pillow cairosvg
+      - name: Inspect official sites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/files
+          cat > /tmp/audit.py <<'PY'
+          import io, json, re, hashlib
+          from pathlib import Path
+          from urllib.parse import urljoin, urlparse
+          import requests
+          from bs4 import BeautifulSoup
+
+          S=requests.Session(); S.headers['User-Agent']='Mozilla/5.0 RUDN educational platform logo audit/0.7.1'
+          sites={
+            'rosstat':'https://rosstat.gov.ru/',
+            'rosselkhoznadzor':'https://fsvps.gov.ru/',
+            'sirius':'https://www.sirius.gov.ru/',
+          }
+          results={}
+          for key,url in sites.items():
+            row={'url':url,'status':None,'final_url':None,'candidates':[],'errors':[]}
+            try:
+              r=S.get(url,timeout=60); row['status']=r.status_code; row['final_url']=r.url
+              r.raise_for_status(); text=r.text
+              Path(f'export/{key}.html').write_text(text,'utf-8')
+              soup=BeautifulSoup(text,'html.parser')
+              raw=[]
+              for tag in soup.find_all(['img','source','link','meta','use']):
+                for attr in ('src','srcset','href','content','xlink:href'):
+                  value=tag.get(attr)
+                  if not value: continue
+                  for part in re.split(r'\s*,\s*',value):
+                    candidate=part.strip().split()[0]
+                    if candidate.startswith(('data:','javascript:','#')): continue
+                    absolute=urljoin(r.url,candidate)
+                    low=absolute.lower()
+                    context=' '.join([str(tag.get('class','')),str(tag.get('id','')),str(tag.get('alt','')),str(tag.get('rel','')),str(tag.get('property','')),str(tag.get('name',''))]).lower()
+                    if any(x in low+' '+context for x in ('logo','emblem','gerb','герб','symbol','brand','favicon','apple-touch')):
+                      raw.append((absolute,tag.name,context[:300]))
+              for css in soup.find_all('link',rel=lambda x:x and 'stylesheet' in x):
+                href=css.get('href')
+                if not href: continue
+                cssurl=urljoin(r.url,href)
+                try:
+                  cr=S.get(cssurl,timeout=30); cr.raise_for_status()
+                  for m in re.finditer(r'url\(([^)]+)\)',cr.text):
+                    candidate=m.group(1).strip(' \"\'')
+                    absolute=urljoin(cssurl,candidate)
+                    if any(x in absolute.lower() for x in ('logo','emblem','gerb','symbol','brand')):
+                      raw.append((absolute,'css',''))
+                except Exception as e: row['errors'].append('css '+cssurl+' '+str(e))
+              seen=set()
+              for i,(asset,origin,context) in enumerate(raw):
+                if asset in seen: continue
+                seen.add(asset)
+                item={'url':asset,'origin':origin,'context':context}
+                try:
+                  ar=S.get(asset,timeout=45); item['status']=ar.status_code; item['content_type']=ar.headers.get('content-type',''); item['size']=len(ar.content)
+                  if ar.ok and len(ar.content)<15_000_000:
+                    ext=Path(urlparse(asset).path).suffix.lower()
+                    if ext not in ('.svg','.png','.jpg','.jpeg','.webp','.ico'): ext='.bin'
+                    filename=f'{key}-{len(row["candidates"])+1:02d}-{hashlib.sha1(asset.encode()).hexdigest()[:8]}{ext}'
+                    Path('export/files',filename).write_bytes(ar.content); item['file']='files/'+filename
+                except Exception as e: item['error']=str(e)
+                row['candidates'].append(item)
+              results[key]=row
+            except Exception as e:
+              row['errors'].append(str(e)); results[key]=row
+          Path('export/audit.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),'utf-8')
+          PY
+          python /tmp/audit.py
+          cat export/audit.json
+          cd export && zip -r -9 ../official-site-logo-audit.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-site-logo-audit
+          path: official-site-logo-audit.zip
+          if-no-files-found: error
+          retention-days: 3
