@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p export/surveys export/media
-          cat > /tmp/audit.mjs <<'JS'
+          cat > audit.mjs <<'JS'
           import { chromium } from 'playwright-core';
           import fs from 'node:fs/promises';
           import path from 'node:path';
@@ -144,7 +144,7 @@ jobs:
           await fs.writeFile('export/inventory.json', JSON.stringify(inventory, null, 2));
           await browser.close();
           JS
-          node /tmp/audit.mjs
+          node audit.mjs
           cd export
           zip -r -9 ../all-yforms-audit.zip .
       - uses: actions/upload-artifact@v4
