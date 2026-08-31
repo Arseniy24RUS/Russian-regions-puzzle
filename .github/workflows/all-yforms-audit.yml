@@ -1,0 +1,155 @@
+name: Audit all saved Yandex Forms tests
+
+on:
+  push:
+    branches:
+      - all-yforms-audit-2026
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install browser client
+        run: npm install --no-save playwright-core@1.55.0
+      - name: Fetch public survey models and media
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/surveys export/media
+          cat > /tmp/audit.mjs <<'JS'
+          import { chromium } from 'playwright-core';
+          import fs from 'node:fs/promises';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+
+          const FORMS = [{"slug":"final","id":"6942211eeb614611ffe23a2f","title":"Итоговый тест"},{"slug":"seminar1_full","id":"68c075f9e010db424bd32329","title":"Семинар 1 полный квиз"},{"slug":"seminar1_short","id":"68c02222d04688cf22bd64b2","title":"Семинар 1 короткий тест"},{"slug":"seminar4","id":"68f77ecf6d2d7306fb5dffeb","title":"Семинар 4 НПА"},{"slug":"seminar5","id":"690a364949af472a6ee7642c","title":"Семинар 5 обращения"},{"slug":"lecture1","id":"68c06d9ef47e7342d327d326","title":"Лекция 1"},{"slug":"lecture2","id":"68e78afe90fa7b71d6fd67af","title":"Лекция 2"},{"slug":"lecture3","id":"68e78d6c5056908215e08c66","title":"Лекция 3"},{"slug":"lecture4","id":"68e78f3502848fa2f6ec2755","title":"Лекция 4"},{"slug":"lecture5","id":"691f1d9595add564a410cc25","title":"Лекция 5"}];
+          const browser = await chromium.launch({
+            headless: true,
+            executablePath: '/usr/bin/google-chrome',
+            args: ['--no-sandbox', '--disable-dev-shm-usage'],
+          });
+          const context = await browser.newContext({ locale: 'ru-RU' });
+          const inventory = [];
+
+          function collectMedia(value, out, trail = []) {
+            if (!value || typeof value !== 'object') return;
+            if (value.links && typeof value.links === 'object') {
+              const links = value.links;
+              const url = links['2560x'] || links['1280x'] || links['720x'] || links['360x'] || links['324x180'] || Object.values(links)[0];
+              if (url) out.push({ trail: trail.join('.'), links, url });
+            }
+            if (Array.isArray(value)) {
+              value.forEach((v, i) => collectMedia(v, out, [...trail, String(i)]));
+            } else {
+              for (const [k, v] of Object.entries(value)) {
+                if (k !== 'links') collectMedia(v, out, [...trail, k]);
+              }
+            }
+          }
+
+          function countItems(survey) {
+            const counts = {};
+            let total = 0;
+            for (const page of survey.pages || []) {
+              for (const item of page.items || []) {
+                total++;
+                const key = `${item.type || 'unknown'}:${item.widget || ''}`;
+                counts[key] = (counts[key] || 0) + 1;
+              }
+            }
+            return { total, counts };
+          }
+
+          for (const form of FORMS) {
+            const page = await context.newPage();
+            const publicUrl = `https://forms.yandex.ru/cloud/${form.id}/`;
+            let survey = null;
+            let error = null;
+            try {
+              const wait = page.waitForResponse(
+                r => r.url().includes('/gateway/root/form/getSurvey') && r.status() === 200,
+                { timeout: 70000 }
+              );
+              await page.goto(publicUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+              const response = await wait;
+              survey = await response.json();
+              await fs.writeFile(`export/surveys/${form.slug}.json`, JSON.stringify(survey, null, 2));
+              await fs.writeFile(`export/surveys/${form.slug}.html`, await page.content());
+            } catch (e) {
+              error = String(e);
+              await fs.writeFile(`export/surveys/${form.slug}-error.txt`, error);
+            }
+            if (!survey) {
+              inventory.push({ ...form, publicUrl, ok: false, error });
+              await page.close();
+              continue;
+            }
+
+            const media = [];
+            collectMedia(survey, media);
+            const unique = new Map();
+            for (const entry of media) {
+              if (!unique.has(entry.url)) unique.set(entry.url, entry);
+            }
+            const mediaRows = [];
+            let index = 0;
+            for (const entry of unique.values()) {
+              index++;
+              try {
+                const response = await context.request.get(entry.url, { timeout: 60000 });
+                if (!response.ok()) throw new Error(`HTTP ${response.status()}`);
+                const body = await response.body();
+                const ct = response.headers()['content-type'] || '';
+                const ext = ct.includes('png') ? '.png' : ct.includes('webp') ? '.webp' : ct.includes('gif') ? '.gif' : ct.includes('svg') ? '.svg' : '.jpg';
+                const filename = `${String(index).padStart(3,'0')}${ext}`;
+                const dir = `export/media/${form.slug}`;
+                await fs.mkdir(dir, { recursive: true });
+                await fs.writeFile(path.join(dir, filename), body);
+                mediaRows.push({
+                  ...entry,
+                  file: `media/${form.slug}/${filename}`,
+                  contentType: ct,
+                  size: body.length,
+                  sha256: crypto.createHash('sha256').update(body).digest('hex'),
+                });
+              } catch (e) {
+                mediaRows.push({ ...entry, error: String(e) });
+              }
+            }
+            await fs.writeFile(`export/surveys/${form.slug}-media.json`, JSON.stringify(mediaRows, null, 2));
+
+            const c = countItems(survey);
+            inventory.push({
+              ...form,
+              publicUrl,
+              ok: true,
+              surveyName: survey.name,
+              pages: (survey.pages || []).length,
+              items: c.total,
+              itemTypes: c.counts,
+              uniqueMedia: unique.size,
+              downloadedMedia: mediaRows.filter(x => x.file).length,
+            });
+            await page.close();
+          }
+          await fs.writeFile('export/inventory.json', JSON.stringify(inventory, null, 2));
+          await browser.close();
+          JS
+          node /tmp/audit.mjs
+          cd export
+          zip -r -9 ../all-yforms-audit.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: all-yforms-audit
+          path: all-yforms-audit.zip
+          if-no-files-found: error
+          retention-days: 3
