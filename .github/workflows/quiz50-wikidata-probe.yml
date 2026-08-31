@@ -1,0 +1,28 @@
+name: Quiz 50 Wikidata media probe
+
+on:
+  push:
+    branches:
+      - quiz50-wikidata-probe-2026
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests
+      - run: python _quiz50/wikidata_probe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quiz50-wikidata-probe
+          path: _quiz50/wikidata_probe.json
+          if-no-files-found: error
+          retention-days: 3
