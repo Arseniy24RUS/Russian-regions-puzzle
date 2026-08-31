@@ -1,0 +1,77 @@
+name: Exact symbol corrections v3
+
+on:
+  push:
+    branches:
+      - quiz-symbols-v071
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check pillow cairosvg
+      - name: Fetch corrected current symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/raw export/assets
+          declare -A URLS
+          URLS[omsk_oblast]='https://upload.wikimedia.org/wikipedia/commons/9/99/Coat_of_Arms_of_Omsk_Oblast.svg'
+          URLS[krasnodar_city]='https://upload.wikimedia.org/wikipedia/commons/f/f0/Coat_of_arms_of_Krasnodar.png'
+          URLS[samara_city]='https://upload.wikimedia.org/wikipedia/commons/0/07/Coat_of_Arms_of_Samara_%28Samara_oblast%29.svg'
+          URLS[rosselkhoznadzor]='https://upload.wikimedia.org/wikipedia/commons/8/80/Emblem_of_the_Federal_Service_for_Veterinary_and_Phytosanitary_Supervision.svg'
+          URLS[sirius]='https://www.sirius.gov.ru/local/templates/sirius_color/img/logo_footer.svg'
+          for key in omsk_oblast krasnodar_city samara_city rosselkhoznadzor sirius; do
+            ext=svg
+            [ "$key" = krasnodar_city ] && ext=png
+            curl --fail --location --retry 12 --retry-all-errors --retry-delay 8 \
+              --connect-timeout 30 --max-time 240 \
+              -A 'RUDN-GMU-Educational-Platform/0.7.1 (educational symbol catalogue)' \
+              "${URLS[$key]}" -o "export/raw/${key}.${ext}"
+            sleep 10
+          done
+          python - <<'PY'
+          import io, json
+          from pathlib import Path
+          import cairosvg
+          from PIL import Image, ImageOps
+          meta = {
+            'omsk_oblast': {'title':'Герб Омской области с 2020 года','source':'https://commons.wikimedia.org/wiki/File:Coat_of_Arms_of_Omsk_Oblast.svg','license':'Public domain / PD-RU-exempt','kind':'jurisdiction_coat'},
+            'krasnodar_city': {'title':'Герб города Краснодара','source':'https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Krasnodar.png','license':'Public domain / PD-RU-exempt','kind':'jurisdiction_coat'},
+            'samara_city': {'title':'Герб города Самары','source':'https://commons.wikimedia.org/wiki/File:Coat_of_Arms_of_Samara_(Samara_oblast).svg','license':'Public domain / PD-RU-exempt','kind':'jurisdiction_coat'},
+            'rosselkhoznadzor': {'title':'Эмблема Россельхознадзора','source':'https://commons.wikimedia.org/wiki/File:Emblem_of_the_Federal_Service_for_Veterinary_and_Phytosanitary_Supervision.svg','license':'Public domain / PD-RU-exempt','kind':'official_emblem'},
+            'sirius': {'title':'Официальный логотип федеральной территории «Сириус»','source':'https://www.sirius.gov.ru/','asset_source':'https://www.sirius.gov.ru/local/templates/sirius_color/img/logo_footer.svg','license':'Official-site visual identity; educational identification use','kind':'official_logo'},
+          }
+          for key in meta:
+              srcs=list(Path('export/raw').glob(key+'.*'))
+              if len(srcs)!=1: raise RuntimeError(f'{key}: expected one source, got {srcs}')
+              src=srcs[0]; b=src.read_bytes(); stripped=b.lstrip()
+              if src.suffix.lower()=='.svg' or stripped.startswith((b'<svg',b'<?xml')):
+                  b=cairosvg.svg2png(bytestring=b,output_width=1600)
+              with Image.open(io.BytesIO(b)) as im:
+                  im=ImageOps.exif_transpose(im).convert('RGBA')
+                  bbox=im.getbbox()
+                  if bbox: im=im.crop(bbox)
+                  im.thumbnail((1100,1100),Image.Resampling.LANCZOS)
+                  canvas=Image.new('RGBA',(1200,1200),(0,0,0,0))
+                  canvas.alpha_composite(im,((1200-im.width)//2,(1200-im.height)//2))
+                  out=Path('export/assets')/(key+'.webp')
+                  canvas.save(out,'WEBP',lossless=True,method=6)
+                  meta[key]['local_file']='assets/'+out.name
+                  meta[key]['output_size']=[1200,1200]
+          Path('export/metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),'utf-8')
+          PY
+          cd export && zip -r -9 ../exact-symbol-fixes-v3.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exact-symbol-fixes-v3
+          path: exact-symbol-fixes-v3.zip
+          if-no-files-found: error
+          retention-days: 3
